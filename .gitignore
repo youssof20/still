@@ -1,0 +1,40 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Signing / secrets
+*.jks
+*.keystore
+*.pem
+keystore.properties
+
+# Internal working material (not for the public repository)
+AGENTS.md
+cursor-start-here.md
+launcher-product-spec.md
+*.prompt.md
+.cursor/
+agent-transcripts/
+
+# Local test artifacts
+*.apk
+*.ap_
+*.aab
+*.dex
+output.json
