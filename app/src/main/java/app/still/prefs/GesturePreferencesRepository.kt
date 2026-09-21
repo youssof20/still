@@ -48,7 +48,7 @@ class GesturePreferencesRepository(
             when (preference) {
                 GestureTargetPreference.Unset -> prefs.remove(key)
                 GestureTargetPreference.Disabled -> prefs[key] = DISABLED_SENTINEL
-                is GestureTargetPreference.Target -> prefs[key] = encode(preference.id)
+                is GestureTargetPreference.Target -> prefs[key] = AppTargetIdCodec.encode(preference.id)
             }
         }
     }
@@ -62,23 +62,14 @@ class GesturePreferencesRepository(
         private val CAMERA_KEY = stringPreferencesKey("camera_target")
         private val PHONE_KEY = stringPreferencesKey("phone_target")
         private const val DISABLED_SENTINEL = "disabled"
-        private const val FIELD_SEP = "\u0001"
 
-        fun encode(id: AppTargetId): String =
-            listOf(id.packageName, id.activityClassName, id.userSerialNumber.toString())
-                .joinToString(FIELD_SEP)
+        fun encode(id: AppTargetId): String = AppTargetIdCodec.encode(id)
 
         fun decode(raw: String?): GestureTargetPreference {
             if (raw == null) return GestureTargetPreference.Unset
             if (raw == DISABLED_SENTINEL) return GestureTargetPreference.Disabled
-            val parts = raw.split(FIELD_SEP)
-            if (parts.size != 3) return GestureTargetPreference.Unset
-            val serial = parts[2].toLongOrNull() ?: return GestureTargetPreference.Unset
-            return runCatching {
-                GestureTargetPreference.Target(
-                    AppTargetId.parse(parts[0], parts[1], serial),
-                )
-            }.getOrDefault(GestureTargetPreference.Unset)
+            val id = AppTargetIdCodec.decode(raw) ?: return GestureTargetPreference.Unset
+            return GestureTargetPreference.Target(id)
         }
     }
 }
