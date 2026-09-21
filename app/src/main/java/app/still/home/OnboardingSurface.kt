@@ -43,7 +43,7 @@ fun OnboardingSurface(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(StillSpacing.lg),
+            .padding(StillSpacing.s24),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         TextButton(
@@ -55,7 +55,7 @@ fun OnboardingSurface(
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(StillSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(StillSpacing.s16),
         ) {
             Text(
                 text = stringResource(titles[page]),

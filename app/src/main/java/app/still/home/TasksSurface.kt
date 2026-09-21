@@ -1,45 +1,42 @@
 package app.still.home
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.dp
 import app.still.R
 import app.still.tasks.TaskEntity
-import app.still.tasks.TaskRepository
+import app.still.ui.PrefRow
+import app.still.ui.SheetActionRow
+import app.still.ui.StillSpacing
+import app.still.ui.StillType
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TasksSurface(
     modifier: Modifier = Modifier,
@@ -47,6 +44,9 @@ fun TasksSurface(
     done: List<TaskEntity>,
     trash: List<TaskEntity>,
     sessionCompletedIds: Set<String>,
+    draftText: String = "",
+    onDraftChange: (String) -> Unit = {},
+    onSubmitDraft: () -> Unit = {},
     onAddTask: () -> Unit,
     onToggleComplete: (TaskEntity, Boolean) -> Unit,
     onEdit: (TaskEntity) -> Unit,
@@ -62,9 +62,10 @@ fun TasksSurface(
 ) {
     var doneExpanded by remember { mutableStateOf(false) }
     var trashExpanded by remember { mutableStateOf(false) }
+    var showMore by remember { mutableStateOf(false) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
+    var longPressed by remember { mutableStateOf<TaskEntity?>(null) }
 
-    // Keep completed-this-session rows in the active list (struck through) until leaving surface.
     val visibleActive = remember(active, sessionCompletedIds, done) {
         val completedHere = done.filter { it.id in sessionCompletedIds }
         active + completedHere
@@ -73,105 +74,161 @@ fun TasksSurface(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = StillSpacing.settingsHorizontal)
+            .padding(top = StillSpacing.s16, bottom = StillSpacing.s48),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onAddTask) {
-                Text(stringResource(R.string.add_task))
-            }
-            OutlinedButton(onClick = onExportJson) {
-                Text(stringResource(R.string.export_tasks_json))
-            }
-            OutlinedButton(onClick = onExportMarkdown) {
-                Text(stringResource(R.string.export_tasks_markdown))
-            }
-            OutlinedButton(onClick = onImportJson) {
-                Text(stringResource(R.string.import_tasks_json))
-            }
-        }
+        BasicTextField(
+            value = draftText,
+            onValueChange = onDraftChange,
+            singleLine = true,
+            textStyle = TextStyle(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = StillType.task,
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onSubmitDraft() }),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = StillSpacing.s12),
+            decorationBox = { inner ->
+                if (draftText.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.task_title_hint),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = StillType.task),
+                    )
+                }
+                inner()
+            },
+        )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
+        LazyColumn(modifier = Modifier.weight(1f)) {
             itemsIndexed(visibleActive, key = { _, task -> task.id }) { index, task ->
                 val completed = task.completedAt != null
-                TaskRow(
-                    task = task,
-                    completed = completed,
-                    editingControls = !completed,
-                    canMoveUp = !completed && index > 0,
-                    canMoveDown = !completed && index < active.lastIndex,
-                    onToggle = { onToggleComplete(task, !completed) },
-                    onEdit = { onEdit(task) },
-                    onMoveUp = { onMove(task.id, true) },
-                    onMoveDown = { onMove(task.id, false) },
-                    onTrash = { onTrash(task) },
+                Text(
+                    text = if (completed) "✓  ${task.title}" else "○  ${task.title}",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = StillType.task,
+                        textDecoration = if (completed) TextDecoration.LineThrough else null,
+                    ),
+                    color = if (completed) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = { onToggleComplete(task, !completed) },
+                            onLongClick = {
+                                if (!completed) longPressed = task
+                                else onEdit(task)
+                            },
+                        )
+                        .padding(vertical = StillSpacing.s12),
                 )
             }
 
-            item {
-                TextButton(onClick = { doneExpanded = !doneExpanded }) {
-                    Text(
-                        stringResource(
-                            if (doneExpanded) R.string.hide_done else R.string.show_done,
-                            done.size,
-                        ),
+            if (done.isNotEmpty()) {
+                item {
+                    PrefRow(
+                        title = stringResource(R.string.tasks_done_count, done.size),
+                        onClick = { doneExpanded = !doneExpanded },
                     )
                 }
-            }
-            if (doneExpanded) {
-                items(done.filter { it.id !in sessionCompletedIds }, key = { it.id }) { task ->
-                    TaskRow(
-                        task = task,
-                        completed = true,
-                        editingControls = false,
-                        canMoveUp = false,
-                        canMoveDown = false,
-                        onToggle = { onRestoreDone(task) },
-                        onEdit = { onEdit(task) },
-                        onMoveUp = {},
-                        onMoveDown = {},
-                        onTrash = { onTrash(task) },
-                    )
+                if (doneExpanded) {
+                    itemsIndexed(done.filter { it.id !in sessionCompletedIds }, key = { _, t -> "d-${t.id}" }) { _, task ->
+                        Text(
+                            text = "✓  ${task.title}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = StillType.hint),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = { onRestoreDone(task) },
+                                    onLongClick = { onTrash(task) },
+                                )
+                                .padding(vertical = StillSpacing.s8),
+                        )
+                    }
                 }
             }
 
             item {
-                TextButton(onClick = { trashExpanded = !trashExpanded }) {
-                    Text(
-                        stringResource(
-                            if (trashExpanded) R.string.hide_trash else R.string.show_trash,
-                            trash.size,
-                        ),
-                    )
+                PrefRow(
+                    title = stringResource(R.string.tasks_overflow),
+                    onClick = { showMore = true },
+                )
+            }
+        }
+    }
+
+    longPressed?.let { task ->
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { longPressed = null },
+            sheetState = sheetState,
+            dragHandle = null,
+        ) {
+            Column(modifier = Modifier.padding(StillSpacing.sheetPadding).padding(bottom = StillSpacing.s32)) {
+                SheetActionRow(stringResource(R.string.edit_task)) {
+                    longPressed = null
+                    onEdit(task)
+                }
+                SheetActionRow(stringResource(R.string.move_up)) {
+                    longPressed = null
+                    onMove(task.id, true)
+                }
+                SheetActionRow(stringResource(R.string.move_down)) {
+                    longPressed = null
+                    onMove(task.id, false)
+                }
+                SheetActionRow(stringResource(R.string.move_to_trash)) {
+                    longPressed = null
+                    onTrash(task)
                 }
             }
-            if (trashExpanded) {
-                item {
-                    Text(
-                        stringResource(R.string.trash_retention, TaskRepository.TRASH_RETENTION_DAYS),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+        }
+    }
+
+    if (showMore) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showMore = false },
+            sheetState = sheetState,
+            dragHandle = null,
+        ) {
+            Column(modifier = Modifier.padding(StillSpacing.sheetPadding).padding(bottom = StillSpacing.s32)) {
+                SheetActionRow(stringResource(R.string.export_tasks_json)) {
+                    showMore = false
+                    onExportJson()
                 }
-                if (trash.isNotEmpty()) {
-                    item {
-                        TextButton(onClick = { confirmEmptyTrash = true }) {
-                            Text(stringResource(R.string.empty_trash))
+                SheetActionRow(stringResource(R.string.export_tasks_markdown)) {
+                    showMore = false
+                    onExportMarkdown()
+                }
+                SheetActionRow(stringResource(R.string.import_tasks_json)) {
+                    showMore = false
+                    onImportJson()
+                }
+                PrefRow(
+                    title = stringResource(R.string.show_trash, trash.size),
+                    onClick = {
+                        trashExpanded = !trashExpanded
+                    },
+                )
+                if (trashExpanded) {
+                    trash.forEach { task ->
+                        SheetActionRow(task.title) {
+                            showMore = false
+                            onRestoreTrash(task)
                         }
                     }
-                }
-                items(trash, key = { "trash-${it.id}" }) { task ->
-                    Column {
-                        Text(task.title, style = MaterialTheme.typography.titleMedium)
-                        Row {
-                            TextButton(onClick = { onRestoreTrash(task) }) {
-                                Text(stringResource(R.string.restore))
-                            }
-                            TextButton(onClick = { onDeleteForever(task) }) {
-                                Text(stringResource(R.string.delete_forever))
-                            }
+                    if (trash.isNotEmpty()) {
+                        SheetActionRow(stringResource(R.string.empty_trash)) {
+                            showMore = false
+                            confirmEmptyTrash = true
                         }
                     }
                 }
@@ -188,9 +245,7 @@ fun TasksSurface(
                 TextButton(onClick = {
                     confirmEmptyTrash = false
                     onEmptyTrash()
-                }) {
-                    Text(stringResource(R.string.delete_forever))
-                }
+                }) { Text(stringResource(R.string.empty_trash)) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmEmptyTrash = false }) {
@@ -210,99 +265,30 @@ fun AddOrEditTaskSurface(
     onSave: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val focusRequester = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    var value by remember(initialTitle) { mutableStateOf(TextFieldValue(initialTitle)) }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboard?.show()
-    }
-
+    var value by remember { mutableStateOf(initialTitle) }
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(StillSpacing.settingsHorizontal)
+            .padding(top = StillSpacing.s24),
     ) {
-        Text(
-            text = stringResource(if (isEdit) R.string.edit_task else R.string.add_task),
-            style = MaterialTheme.typography.titleLarge,
-        )
-        OutlinedTextField(
+        BasicTextField(
             value = value,
             onValueChange = {
                 value = it
-                onTitleChange(it.text)
+                onTitleChange(it)
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester),
-            label = { Text(stringResource(R.string.task_title_hint)) },
             singleLine = true,
+            textStyle = TextStyle(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = StillType.favorite,
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onSave() }),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onSave) {
-                Text(stringResource(R.string.save))
-            }
-            TextButton(onClick = onCancel) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    }
-}
-
-@Composable
-private fun TaskRow(
-    task: TaskEntity,
-    completed: Boolean,
-    editingControls: Boolean,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onToggle: () -> Unit,
-    onEdit: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onTrash: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Checkbox(checked = completed, onCheckedChange = { onToggle() })
-            TextButton(
-                onClick = onEdit,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    text = task.title,
-                    style = TextStyle(
-                        textDecoration = if (completed) TextDecoration.LineThrough else TextDecoration.None,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        if (editingControls) {
-            Row {
-                TextButton(onClick = onMoveUp, enabled = canMoveUp) {
-                    Text(stringResource(R.string.move_up))
-                }
-                TextButton(onClick = onMoveDown, enabled = canMoveDown) {
-                    Text(stringResource(R.string.move_down))
-                }
-                TextButton(onClick = onTrash) {
-                    Text(stringResource(R.string.move_to_trash))
-                }
-            }
-        } else if (completed) {
-            TextButton(onClick = onTrash) {
-                Text(stringResource(R.string.move_to_trash))
-            }
-        }
+        )
+        PrefRow(title = stringResource(R.string.save), onClick = onSave)
+        PrefRow(title = stringResource(R.string.cancel), onClick = onCancel)
     }
 }

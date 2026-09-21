@@ -215,5 +215,14 @@
     <string name="appearance_presets">Presets</string>
     <string name="lock_unavailable">Lock screen isn\'t available here.</string>
     <string name="shade_unavailable">Couldn\'t open the system panel.</string>
-    <string name="app_unavailable">App isn\'t available.</string>
+    <string name="add_task_inline">+ Add</string>
+    <string name="tasks_done_count">Done %1$d</string>
+    <string name="tasks_overflow">More</string>
+    <string name="backup_export">Export</string>
+    <string name="pref_on">On</string>
+    <string name="pref_off">Off</string>
+    <string name="pref_default">Default</string>
+    <string name="appearance_typeface">Typeface</string>
+    <string name="appearance_spacing">Spacing</string>
+    <string name="choose_action">Choose action</string>
 </resources>

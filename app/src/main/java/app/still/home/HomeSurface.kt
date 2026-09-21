@@ -1,12 +1,12 @@
 package app.still.home
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,17 +15,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,10 +34,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.view.HapticFeedbackConstants
 import app.still.R
 import app.still.appearance.HomeAlignment
 import app.still.launcher.AppTargetId
@@ -49,28 +46,16 @@ import app.still.prefs.HomeVerticalPlacement
 import app.still.prefs.LauncherPreferences
 import app.still.tasks.TaskEntity
 import app.still.ui.LocalHomeAlignment
+import app.still.ui.SheetActionRow
 import app.still.ui.StillSpacing
-import app.still.widgets.StillWidgetHostController
-import app.still.widgets.WidgetPlacement
-import app.still.widgets.WidgetShelfSection
+import app.still.ui.StillType
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 
-enum class HomeSheetKind {
-    EditHome,
-    Favorite,
-    Clock,
-    Date,
-    TaskArea,
-}
-
-data class HomeSheetState(
-    val kind: HomeSheetKind,
-    val favoriteId: AppTargetId? = null,
-)
+private enum class HomeSheetKind { Menu, Favorite, Clock, Date }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -78,11 +63,8 @@ fun HomeSurface(
     modifier: Modifier = Modifier,
     favorites: List<FavoriteEntry>,
     launcherPrefs: LauncherPreferences,
-    editingHome: Boolean,
     is24Hour: Boolean,
     taskPreview: List<TaskEntity> = emptyList(),
-    widgetPlacements: List<WidgetPlacement> = emptyList(),
-    widgetHost: StillWidgetHostController? = null,
     onGestureUp: () -> Unit,
     onGestureDown: () -> Unit,
     onGestureLeft: () -> Unit,
@@ -100,23 +82,13 @@ fun HomeSurface(
     onHideFavorite: (AppTargetId) -> Unit,
     onUninstallFavorite: (AppTargetId) -> Unit,
     onMoveFavorite: (AppTargetId, Boolean) -> Unit,
-    onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAppearance: () -> Unit,
-    onOpenGestures: () -> Unit,
     onOpenTasks: () -> Unit,
     onAddTask: () -> Unit,
     onTogglePreviewTaskComplete: (TaskEntity, Boolean) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onAddFavorite: () -> Unit,
-    onAddWidget: () -> Unit,
-    onOpenWidgets: () -> Unit,
-    onToggleLayoutLock: () -> Unit,
-    onDismissEmptyHint: () -> Unit,
-    onRemoveWidget: (Int) -> Unit = {},
-    onUpdateWidget: (WidgetPlacement) -> Unit = {},
-    onEnterEditHome: () -> Unit,
-    onExitEditHome: () -> Unit,
 ) {
     val homeAlignment = LocalHomeAlignment.current
     val homeTextAlign = when (homeAlignment) {
@@ -129,13 +101,13 @@ fun HomeSurface(
         HomeAlignment.Center -> Alignment.CenterHorizontally
         HomeAlignment.End -> Alignment.End
     }
-    var sheet by remember { mutableStateOf<HomeSheetState?>(null) }
+    var sheet by remember { mutableStateOf<HomeSheetKind?>(null) }
+    var favoriteSheetId by remember { mutableStateOf<AppTargetId?>(null) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val view = LocalView.current
-    val haptic = launcherPrefs.hapticFeedback
 
     fun buzz() {
-        if (!haptic) return
+        if (!launcherPrefs.hapticFeedback) return
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
     }
 
@@ -151,8 +123,7 @@ fun HomeSurface(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(editingHome) {
-                if (editingHome) return@pointerInput
+            .pointerInput(Unit) {
                 var totalX = 0f
                 var totalY = 0f
                 detectDragGestures(
@@ -191,7 +162,8 @@ fun HomeSurface(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = StillSpacing.homeHorizontal, vertical = StillSpacing.homeTop),
+                .padding(horizontal = StillSpacing.homeHorizontal)
+                .padding(top = StillSpacing.homeTop, bottom = StillSpacing.s48),
             verticalArrangement = verticalArrangement,
             horizontalAlignment = homeContentAlignment,
         ) {
@@ -207,18 +179,18 @@ fun HomeSurface(
                     onTapClock = onTapClock,
                     onLongClock = {
                         buzz()
-                        sheet = HomeSheetState(HomeSheetKind.Clock)
+                        sheet = HomeSheetKind.Clock
                     },
                     onTapDate = onTapDate,
                     onLongDate = {
                         buzz()
-                        sheet = HomeSheetState(HomeSheetKind.Date)
+                        sheet = HomeSheetKind.Date
                     },
                 )
                 Spacer(modifier = Modifier.height(StillSpacing.sectionGap))
             }
 
-            if (favorites.isEmpty() && !editingHome) {
+            if (favorites.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -227,7 +199,7 @@ fun HomeSurface(
                             onClick = { },
                             onLongClick = {
                                 buzz()
-                                sheet = HomeSheetState(HomeSheetKind.EditHome)
+                                sheet = HomeSheetKind.Menu
                             },
                         ),
                     horizontalAlignment = homeContentAlignment,
@@ -235,25 +207,23 @@ fun HomeSurface(
                     if (!launcherPrefs.favoritesEmptyHintDismissed) {
                         Text(
                             text = stringResource(R.string.favorites_empty_short),
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = StillType.hint),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = homeTextAlign,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Text(
                             text = stringResource(R.string.favorites_empty_hint),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = StillType.hint),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = homeTextAlign,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = StillSpacing.s4),
                         )
-                        TextButton(onClick = onDismissEmptyHint) {
-                            Text(stringResource(R.string.done))
-                        }
                     }
                 }
             } else {
-                val rowSpacing = (4f * launcherPrefs.favoriteSpacingScale).dp
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f, fill = true)
@@ -262,11 +232,10 @@ fun HomeSurface(
                             onClick = { },
                             onLongClick = {
                                 buzz()
-                                sheet = HomeSheetState(HomeSheetKind.EditHome)
+                                sheet = HomeSheetKind.Menu
                             },
                         ),
-                    contentPadding = PaddingValues(vertical = StillSpacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(rowSpacing),
+                    verticalArrangement = Arrangement.Top,
                     horizontalAlignment = homeContentAlignment,
                 ) {
                     itemsIndexed(
@@ -277,289 +246,137 @@ fun HomeSurface(
                     ) { index, entry ->
                         FavoriteRow(
                             entry = entry,
-                            editingHome = editingHome,
-                            canMoveUp = index > 0,
-                            canMoveDown = index < favorites.lastIndex,
                             textAlign = homeTextAlign,
-                            contentAlignment = homeContentAlignment,
                             onLaunch = { onLaunchFavorite(entry.id) },
                             onLongPress = {
                                 buzz()
-                                sheet = HomeSheetState(HomeSheetKind.Favorite, entry.id)
+                                favoriteSheetId = entry.id
+                                sheet = HomeSheetKind.Favorite
                             },
-                            onMoveUp = { onMoveFavorite(entry.id, true) },
-                            onMoveDown = { onMoveFavorite(entry.id, false) },
-                            onRemove = { onRemoveFavorite(entry.id) },
                         )
                     }
                 }
-            }
-
-            if (widgetHost != null) {
-                WidgetShelfSection(
-                    placements = widgetPlacements,
-                    host = widgetHost,
-                    editing = editingHome,
-                    onRemove = onRemoveWidget,
-                    onUpdate = onUpdateWidget,
-                    onAddWidget = onAddWidget,
-                )
             }
 
             if (launcherPrefs.taskPreviewLimit > 0) {
-                Spacer(modifier = Modifier.height(StillSpacing.sm))
-                TaskPreviewSection(
+                Spacer(modifier = Modifier.height(StillSpacing.s16))
+                TaskPreviewBlock(
                     tasks = taskPreview.take(launcherPrefs.taskPreviewLimit),
                     textAlign = homeTextAlign,
-                    onOpenTasks = onOpenTasks,
-                    onAddTask = onAddTask,
                     onToggleComplete = onTogglePreviewTaskComplete,
                     onOpenTask = onOpenTask,
-                    onLongPressArea = {
-                        buzz()
-                        sheet = HomeSheetState(HomeSheetKind.TaskArea)
-                    },
+                    onAddTask = onAddTask,
+                    onOpenTasks = onOpenTasks,
                 )
-            }
-
-            if (editingHome) {
-                Spacer(modifier = Modifier.height(StillSpacing.sm))
-                TextButton(onClick = onExitEditHome) {
-                    Text(stringResource(R.string.exit_edit_home))
-                }
             }
         }
     }
 
-    sheet?.let { state ->
+    sheet?.let { kind ->
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
-            onDismissRequest = { sheet = null },
+            onDismissRequest = {
+                sheet = null
+                favoriteSheetId = null
+            },
             sheetState = sheetState,
+            dragHandle = null,
         ) {
-            when (state.kind) {
-                HomeSheetKind.EditHome -> EditHomeSheet(
-                    layoutLocked = launcherPrefs.layoutLocked,
-                    onAddFavorite = {
-                        sheet = null
-                        onAddFavorite()
-                    },
-                    onAddWidget = {
-                        sheet = null
-                        onAddWidget()
-                    },
-                    onTasks = {
-                        sheet = null
-                        onOpenTasks()
-                    },
-                    onAppearance = {
-                        sheet = null
-                        onOpenAppearance()
-                    },
-                    onGestures = {
-                        sheet = null
-                        onOpenGestures()
-                    },
-                    onSettings = {
-                        sheet = null
-                        onOpenSettings()
-                    },
-                    onToggleLock = {
-                        onToggleLayoutLock()
-                        sheet = null
-                    },
-                    onEditLayout = {
-                        sheet = null
-                        onEnterEditHome()
-                    },
-                    onWidgets = {
-                        sheet = null
-                        onOpenWidgets()
-                    },
-                )
-                HomeSheetKind.Favorite -> {
-                    val entry = favorites.firstOrNull { it.id == state.favoriteId }
-                    if (entry != null) {
-                        FavoriteSheet(
-                            entry = entry,
-                            onRename = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = StillSpacing.sheetPadding)
+                    .padding(top = StillSpacing.s8, bottom = StillSpacing.s32),
+            ) {
+                when (kind) {
+                    HomeSheetKind.Menu -> {
+                        SheetActionRow(stringResource(R.string.open_tasks)) {
+                            sheet = null
+                            onOpenTasks()
+                        }
+                        SheetActionRow(stringResource(R.string.open_appearance)) {
+                            sheet = null
+                            onOpenAppearance()
+                        }
+                        SheetActionRow(stringResource(R.string.open_settings)) {
+                            sheet = null
+                            onOpenSettings()
+                        }
+                        SheetActionRow(stringResource(R.string.add_favorite)) {
+                            sheet = null
+                            onAddFavorite()
+                        }
+                    }
+                    HomeSheetKind.Favorite -> {
+                        val entry = favorites.firstOrNull { it.id == favoriteSheetId }
+                        if (entry != null) {
+                            val idx = favorites.indexOf(entry)
+                            Text(
+                                entry.displayLabel,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(
+                                    horizontal = StillSpacing.s8,
+                                    vertical = StillSpacing.s8,
+                                ),
+                            )
+                            SheetActionRow(stringResource(R.string.rename_app)) {
                                 sheet = null
                                 onRenameFavorite(entry.id)
-                            },
-                            onRemove = {
+                            }
+                            if (idx > 0) {
+                                SheetActionRow(stringResource(R.string.move_up)) {
+                                    sheet = null
+                                    onMoveFavorite(entry.id, true)
+                                }
+                            }
+                            if (idx < favorites.lastIndex) {
+                                SheetActionRow(stringResource(R.string.move_down)) {
+                                    sheet = null
+                                    onMoveFavorite(entry.id, false)
+                                }
+                            }
+                            SheetActionRow(stringResource(R.string.remove_favorite)) {
                                 sheet = null
                                 onRemoveFavorite(entry.id)
-                            },
-                            onAppInfo = {
-                                sheet = null
-                                onFavoriteAppInfo(entry.id)
-                            },
-                            onHide = {
+                            }
+                            SheetActionRow(stringResource(R.string.hide_from_browsing)) {
                                 sheet = null
                                 onHideFavorite(entry.id)
-                            },
-                            onUninstall = {
+                            }
+                            SheetActionRow(stringResource(R.string.app_info)) {
+                                sheet = null
+                                onFavoriteAppInfo(entry.id)
+                            }
+                            SheetActionRow(stringResource(R.string.uninstall_app)) {
                                 sheet = null
                                 onUninstallFavorite(entry.id)
-                            },
-                        )
+                            }
+                        }
+                    }
+                    HomeSheetKind.Clock -> {
+                        SheetActionRow(stringResource(R.string.clock_change_app)) {
+                            sheet = null
+                            onChangeClockApp()
+                        }
+                        SheetActionRow(stringResource(R.string.clock_disable_tap)) {
+                            sheet = null
+                            onDisableClockTap()
+                        }
+                    }
+                    HomeSheetKind.Date -> {
+                        SheetActionRow(stringResource(R.string.date_change_app)) {
+                            sheet = null
+                            onChangeDateApp()
+                        }
+                        SheetActionRow(stringResource(R.string.date_disable_tap)) {
+                            sheet = null
+                            onDisableDateTap()
+                        }
                     }
                 }
-                HomeSheetKind.Clock -> ClockSheet(
-                    onChangeApp = {
-                        sheet = null
-                        onChangeClockApp()
-                    },
-                    onDisableTap = {
-                        sheet = null
-                        onDisableClockTap()
-                    },
-                    onAppearance = {
-                        sheet = null
-                        onOpenAppearance()
-                    },
-                )
-                HomeSheetKind.Date -> DateSheet(
-                    onChangeApp = {
-                        sheet = null
-                        onChangeDateApp()
-                    },
-                    onDisableTap = {
-                        sheet = null
-                        onDisableDateTap()
-                    },
-                    onAppearance = {
-                        sheet = null
-                        onOpenAppearance()
-                    },
-                )
-                HomeSheetKind.TaskArea -> TaskAreaSheet(
-                    onOpenTasks = {
-                        sheet = null
-                        onOpenTasks()
-                    },
-                    onAddTask = {
-                        sheet = null
-                        onAddTask()
-                    },
-                )
             }
         }
-    }
-}
-
-@Composable
-private fun EditHomeSheet(
-    layoutLocked: Boolean,
-    onAddFavorite: () -> Unit,
-    onAddWidget: () -> Unit,
-    onTasks: () -> Unit,
-    onAppearance: () -> Unit,
-    onGestures: () -> Unit,
-    onSettings: () -> Unit,
-    onToggleLock: () -> Unit,
-    onEditLayout: () -> Unit,
-    onWidgets: () -> Unit,
-) {
-    SheetColumn {
-        SheetAction(stringResource(R.string.add_favorite), onAddFavorite)
-        SheetAction(stringResource(R.string.widget_add), onAddWidget)
-        SheetAction(stringResource(R.string.open_widgets), onWidgets)
-        SheetAction(stringResource(R.string.open_tasks), onTasks)
-        SheetAction(stringResource(R.string.open_appearance), onAppearance)
-        SheetAction(stringResource(R.string.gestures_title), onGestures)
-        SheetAction(stringResource(R.string.open_settings), onSettings)
-        SheetAction(
-            if (layoutLocked) stringResource(R.string.unlock_layout) else stringResource(R.string.layout_lock),
-            onToggleLock,
-        )
-        if (!layoutLocked) {
-            SheetAction(stringResource(R.string.edit_home), onEditLayout)
-        }
-    }
-}
-
-@Composable
-private fun FavoriteSheet(
-    entry: FavoriteEntry,
-    onRename: () -> Unit,
-    onRemove: () -> Unit,
-    onAppInfo: () -> Unit,
-    onHide: () -> Unit,
-    onUninstall: () -> Unit,
-) {
-    SheetColumn {
-        Text(entry.displayLabel, style = MaterialTheme.typography.titleMedium)
-        SheetAction(stringResource(R.string.rename_app), onRename)
-        SheetAction(stringResource(R.string.remove_favorite), onRemove)
-        SheetAction(stringResource(R.string.app_info), onAppInfo)
-        SheetAction(stringResource(R.string.hide_from_browsing), onHide)
-        SheetAction(stringResource(R.string.uninstall_app), onUninstall)
-    }
-}
-
-@Composable
-private fun ClockSheet(
-    onChangeApp: () -> Unit,
-    onDisableTap: () -> Unit,
-    onAppearance: () -> Unit,
-) {
-    SheetColumn {
-        SheetAction(stringResource(R.string.clock_change_app), onChangeApp)
-        SheetAction(stringResource(R.string.clock_disable_tap), onDisableTap)
-        SheetAction(stringResource(R.string.clock_appearance), onAppearance)
-    }
-}
-
-@Composable
-private fun DateSheet(
-    onChangeApp: () -> Unit,
-    onDisableTap: () -> Unit,
-    onAppearance: () -> Unit,
-) {
-    SheetColumn {
-        SheetAction(stringResource(R.string.date_change_app), onChangeApp)
-        SheetAction(stringResource(R.string.date_disable_tap), onDisableTap)
-        SheetAction(stringResource(R.string.date_appearance), onAppearance)
-    }
-}
-
-@Composable
-private fun TaskAreaSheet(
-    onOpenTasks: () -> Unit,
-    onAddTask: () -> Unit,
-) {
-    SheetColumn {
-        SheetAction(stringResource(R.string.open_tasks), onOpenTasks)
-        SheetAction(stringResource(R.string.add_task), onAddTask)
-    }
-}
-
-@Composable
-fun SheetColumn(content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(StillSpacing.sheetPadding)
-            .padding(bottom = StillSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(StillSpacing.xxs),
-        content = { content() },
-    )
-}
-
-@Composable
-fun SheetAction(label: String, onClick: () -> Unit) {
-    TextButton(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(vertical = StillSpacing.sm, horizontal = StillSpacing.xs),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Start,
-        )
     }
 }
 
@@ -580,11 +397,7 @@ private fun ClockDateBlock(
 ) {
     val locale = Locale.getDefault()
     val timeFormat = remember(is24Hour, locale) {
-        if (is24Hour) {
-            DateFormat.getTimeInstance(DateFormat.SHORT, locale)
-        } else {
-            DateFormat.getTimeInstance(DateFormat.SHORT, locale)
-        }
+        DateFormat.getTimeInstance(DateFormat.SHORT, locale)
     }
     val dateFormat = remember(locale) {
         DateFormat.getDateInstance(DateFormat.FULL, locale)
@@ -595,7 +408,9 @@ private fun ClockDateBlock(
             Text(
                 text = time,
                 style = MaterialTheme.typography.displayMedium.copy(
-                    fontSize = (MaterialTheme.typography.displayMedium.fontSize.value * clockScale).sp,
+                    fontSize = (StillType.clock.value * clockScale).sp,
+                    fontWeight = FontWeight.Light,
+                    lineHeight = (StillType.clock.value * clockScale * 1.1f).sp,
                 ),
                 textAlign = textAlign,
                 modifier = Modifier
@@ -609,12 +424,14 @@ private fun ClockDateBlock(
             Text(
                 text = date,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * dateScale).sp,
+                    fontSize = (StillType.date.value * dateScale).sp,
+                    fontWeight = FontWeight.Normal,
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = textAlign,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(top = StillSpacing.s4)
                     .combinedClickable(onClick = onTapDate, onLongClick = onLongDate)
                     .semantics { contentDescription = date },
             )
@@ -626,114 +443,66 @@ private fun ClockDateBlock(
 @Composable
 private fun FavoriteRow(
     entry: FavoriteEntry,
-    editingHome: Boolean,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
     textAlign: TextAlign,
-    contentAlignment: Alignment.Horizontal,
     onLaunch: () -> Unit,
     onLongPress: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onRemove: () -> Unit,
 ) {
     val label = if (entry.missing) entry.id.packageName else entry.displayLabel
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.headlineSmall,
-            textAlign = textAlign,
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(onClick = onLaunch, onLongClick = onLongPress)
-                .padding(vertical = StillSpacing.favoriteRowVertical)
-                .semantics { contentDescription = label },
-        )
-        if (entry.missing) {
-            Text(
-                text = stringResource(R.string.favorite_missing),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = textAlign,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            entry.target?.profileIndicator?.let {
-                Text(
-                    text = stringResource(R.string.profile_badge, it),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = textAlign,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        if (editingHome) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(StillSpacing.xxs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onMoveUp, enabled = canMoveUp) {
-                    Text(stringResource(R.string.move_up))
-                }
-                TextButton(onClick = onMoveDown, enabled = canMoveDown) {
-                    Text(stringResource(R.string.move_down))
-                }
-                TextButton(onClick = onRemove) {
-                    Text(stringResource(R.string.remove_favorite))
-                }
-            }
-        }
-    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.headlineSmall.copy(
+            fontSize = StillType.favorite,
+            fontWeight = FontWeight.Normal,
+            lineHeight = (StillType.favorite.value * 1.25f).sp,
+        ),
+        textAlign = textAlign,
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onLaunch, onLongClick = onLongPress)
+            .padding(vertical = StillSpacing.favoriteRowVertical)
+            .semantics { contentDescription = label },
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TaskPreviewSection(
+private fun TaskPreviewBlock(
     tasks: List<TaskEntity>,
     textAlign: TextAlign,
-    onOpenTasks: () -> Unit,
-    onAddTask: () -> Unit,
     onToggleComplete: (TaskEntity, Boolean) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
-    onLongPressArea: () -> Unit,
+    onAddTask: () -> Unit,
+    onOpenTasks: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onOpenTasks, onLongClick = onLongPressArea),
-        verticalArrangement = Arrangement.spacedBy(StillSpacing.xxs),
+            .combinedClickable(onClick = onOpenTasks, onLongClick = onOpenTasks),
+        verticalArrangement = Arrangement.spacedBy(StillSpacing.s4),
     ) {
+        tasks.forEach { task ->
+            Text(
+                text = "○  ${task.title}",
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = StillType.task),
+                textAlign = textAlign,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(
+                        onClick = { onToggleComplete(task, true) },
+                        onLongClick = { onOpenTask(task) },
+                    )
+                    .padding(vertical = StillSpacing.s4),
+            )
+        }
         Text(
-            text = stringResource(R.string.tasks_title),
-            style = MaterialTheme.typography.labelLarge,
+            text = stringResource(R.string.add_task_inline),
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = StillType.hint),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = textAlign,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = onAddTask, onLongClick = onOpenTasks)
+                .padding(vertical = StillSpacing.s4),
         )
-        tasks.forEach { task ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Checkbox(
-                    checked = false,
-                    onCheckedChange = { onToggleComplete(task, true) },
-                )
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier
-                        .weight(1f)
-                        .combinedClickable(
-                            onClick = { onOpenTask(task) },
-                            onLongClick = onLongPressArea,
-                        ),
-                )
-            }
-        }
-        TextButton(onClick = onAddTask) {
-            Text(stringResource(R.string.add_task))
-        }
     }
 }

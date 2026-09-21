@@ -1,26 +1,21 @@
 package app.still.home
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import app.still.R
 import app.still.appearance.AppearancePresets
 import app.still.appearance.AppearanceSettings
@@ -30,7 +25,20 @@ import app.still.appearance.HomeAlignment
 import app.still.appearance.ImportedFontInfo
 import app.still.appearance.TextWeightOption
 import app.still.appearance.ThemeMode
+import app.still.ui.PrefRow
+import app.still.ui.PrefSection
+import app.still.ui.SheetActionRow
 import app.still.ui.StillSpacing
+import app.still.ui.StillType
+
+private enum class AppearancePane {
+    Root,
+    Presets,
+    Theme,
+    Typeface,
+    Weight,
+    Alignment,
+}
 
 @Composable
 fun AppearanceSurface(
@@ -49,203 +57,181 @@ fun AppearanceSurface(
     onExportPreset: () -> Unit,
     onImportPreset: () -> Unit,
 ) {
+    var pane by remember { mutableStateOf(AppearancePane.Root) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(StillSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(StillSpacing.md),
+            .padding(horizontal = StillSpacing.settingsHorizontal)
+            .padding(bottom = StillSpacing.s48),
     ) {
-        Text(stringResource(R.string.appearance_preview_label), style = MaterialTheme.typography.titleMedium)
-        AppearancePreviewSample(draft = draft)
+        when (pane) {
+            AppearancePane.Root -> {
+                Text(
+                    text = stringResource(R.string.appearance_preview_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = StillSpacing.s16, bottom = StillSpacing.s8),
+                )
+                AppearancePreviewQuiet(draft)
 
-        Text(stringResource(R.string.appearance_presets), style = MaterialTheme.typography.titleMedium)
-        AppearancePresets.all().chunked(2).forEach { row ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(StillSpacing.xs),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                row.forEach { (name, preset) ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { onDraftChange(preset) },
-                        label = { Text(name) },
+                if (contrastWarning) {
+                    Text(
+                        stringResource(R.string.appearance_contrast_warning),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = StillSpacing.s8),
                     )
                 }
-            }
-        }
-
-        if (contrastWarning) {
-            Text(
-                stringResource(R.string.appearance_contrast_warning),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        if (fontLoadFailed) {
-            Text(
-                stringResource(R.string.appearance_font_failed),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-
-        Text(stringResource(R.string.appearance_theme_mode), style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            ThemeMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = draft.themeMode == mode,
-                    onClick = { onDraftChange(draft.copy(themeMode = mode)) },
-                    label = { Text(modeLabel(mode)) },
-                )
-            }
-        }
-
-        Text(stringResource(R.string.appearance_color_mode), style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ColorMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = draft.colorMode == mode,
-                    onClick = { onDraftChange(draft.copy(colorMode = mode)) },
-                    label = { Text(colorModeLabel(mode)) },
-                )
-            }
-        }
-
-        if (draft.colorMode == ColorMode.Custom) {
-            AccentPresets(
-                selectedAccent = draft.customAccentArgb,
-                selectedBackground = draft.customBackgroundArgb,
-                onAccent = { onDraftChange(draft.copy(customAccentArgb = it)) },
-                onBackground = { onDraftChange(draft.copy(customBackgroundArgb = it)) },
-            )
-        }
-
-        Text(stringResource(R.string.appearance_font), style = MaterialTheme.typography.titleMedium)
-        Text(stringResource(R.string.appearance_font_settings_note), style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                FontSource.System,
-                FontSource.Sans,
-                FontSource.Serif,
-                FontSource.Mono,
-            ).forEach { source ->
-                FilterChip(
-                    selected = draft.fontSource == source,
-                    onClick = {
-                        onDraftChange(draft.copy(fontSource = source, importedFontId = null))
-                    },
-                    label = { Text(fontSourceLabel(source)) },
-                )
-            }
-        }
-        OutlinedButton(onClick = onImportFont) {
-            Text(stringResource(R.string.appearance_import_font))
-        }
-        importedFonts.forEach { font ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FilterChip(
-                    selected = draft.fontSource == FontSource.Imported && draft.importedFontId == font.id,
-                    onClick = {
-                        onDraftChange(
-                            draft.copy(fontSource = FontSource.Imported, importedFontId = font.id),
-                        )
-                    },
-                    label = { Text(font.displayName) },
-                )
-                TextButton(onClick = { onDeleteImportedFont(font.id) }) {
-                    Text(stringResource(R.string.appearance_delete_font))
+                if (fontLoadFailed) {
+                    Text(
+                        stringResource(R.string.appearance_font_failed),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
-            }
-        }
 
-        Text(stringResource(R.string.appearance_text_scale), style = MaterialTheme.typography.titleMedium)
-        Slider(
-            value = draft.homeTextScale,
-            onValueChange = { onDraftChange(draft.copy(homeTextScale = it)) },
-            valueRange = AppearanceSettings.MIN_SCALE..AppearanceSettings.MAX_SCALE,
-        )
-
-        Text(stringResource(R.string.appearance_text_weight), style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextWeightOption.entries.forEach { weight ->
-                FilterChip(
-                    selected = draft.homeTextWeight == weight,
-                    onClick = { onDraftChange(draft.copy(homeTextWeight = weight)) },
-                    label = { Text(weight.name) },
+                PrefSection(stringResource(R.string.appearance_title))
+                PrefRow(
+                    title = stringResource(R.string.appearance_presets),
+                    value = presetNameFor(draft),
+                    onClick = { pane = AppearancePane.Presets },
                 )
-            }
-        }
-
-        Text(stringResource(R.string.appearance_line_spacing), style = MaterialTheme.typography.titleMedium)
-        Slider(
-            value = draft.homeLineSpacing,
-            onValueChange = { onDraftChange(draft.copy(homeLineSpacing = it)) },
-            valueRange = 0.9f..1.5f,
-        )
-
-        Text(stringResource(R.string.appearance_alignment), style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeAlignment.entries.forEach { align ->
-                FilterChip(
-                    selected = draft.homeAlignment == align,
-                    onClick = { onDraftChange(draft.copy(homeAlignment = align)) },
-                    label = { Text(align.name) },
+                PrefRow(
+                    title = stringResource(R.string.appearance_theme_mode),
+                    value = modeLabel(draft.themeMode),
+                    onClick = { pane = AppearancePane.Theme },
                 )
-            }
-        }
+                PrefRow(
+                    title = stringResource(R.string.appearance_typeface),
+                    value = fontSourceLabel(draft.fontSource),
+                    onClick = { pane = AppearancePane.Typeface },
+                )
+                PrefRow(
+                    title = stringResource(R.string.appearance_text_scale),
+                    value = String.format("%.0f%%", draft.homeTextScale * 100),
+                    onClick = {
+                        val next = when {
+                            draft.homeTextScale < 0.95f -> 1.0f
+                            draft.homeTextScale < 1.1f -> 1.15f
+                            draft.homeTextScale < 1.3f -> 1.35f
+                            else -> 0.9f
+                        }
+                        onDraftChange(draft.copy(homeTextScale = next))
+                    },
+                )
+                PrefRow(
+                    title = stringResource(R.string.appearance_text_weight),
+                    value = draft.homeTextWeight.name,
+                    onClick = { pane = AppearancePane.Weight },
+                )
+                PrefRow(
+                    title = stringResource(R.string.appearance_alignment),
+                    value = draft.homeAlignment.name,
+                    onClick = { pane = AppearancePane.Alignment },
+                )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.appearance_wallpaper_scrim))
-                Text(stringResource(R.string.appearance_wallpaper_scrim_note), style = MaterialTheme.typography.bodySmall)
+                PrefSection(stringResource(R.string.apply))
+                PrefRow(
+                    title = stringResource(R.string.appearance_apply),
+                    value = if (hasUnsavedChanges) "•" else null,
+                    onClick = if (hasUnsavedChanges && !contrastWarning) onApply else null,
+                )
+                PrefRow(title = stringResource(R.string.cancel), onClick = onCancel)
+                PrefRow(title = stringResource(R.string.appearance_reset), onClick = onReset)
+                PrefRow(title = stringResource(R.string.appearance_export_preset), onClick = onExportPreset)
+                PrefRow(title = stringResource(R.string.appearance_import_preset), onClick = onImportPreset)
             }
-            Switch(
-                checked = draft.showWallpaperScrim,
-                onCheckedChange = { onDraftChange(draft.copy(showWallpaperScrim = it)) },
-            )
-        }
-        if (draft.showWallpaperScrim) {
-            Text(stringResource(R.string.appearance_scrim_strength))
-            Slider(
-                value = draft.scrimStrength,
-                onValueChange = { onDraftChange(draft.copy(scrimStrength = it)) },
-                valueRange = 0f..0.85f,
-            )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onApply, enabled = hasUnsavedChanges && !contrastWarning) {
-                Text(stringResource(R.string.appearance_apply))
+            AppearancePane.Presets -> {
+                PrefSection(stringResource(R.string.appearance_presets))
+                AppearancePresets.all().forEach { (name, preset) ->
+                    PrefRow(
+                        title = name,
+                        value = if (presetNameFor(draft) == name) "✓" else null,
+                        onClick = {
+                            onDraftChange(preset)
+                            pane = AppearancePane.Root
+                        },
+                    )
+                }
+                PrefRow(title = stringResource(R.string.back), onClick = { pane = AppearancePane.Root })
             }
-            TextButton(onClick = onCancel, enabled = hasUnsavedChanges) {
-                Text(stringResource(R.string.cancel))
+            AppearancePane.Theme -> {
+                PrefSection(stringResource(R.string.appearance_theme_mode))
+                ThemeMode.entries.forEach { mode ->
+                    PrefRow(
+                        title = modeLabel(mode),
+                        value = if (draft.themeMode == mode) "✓" else null,
+                        onClick = {
+                            onDraftChange(draft.copy(themeMode = mode))
+                            pane = AppearancePane.Root
+                        },
+                    )
+                }
+                PrefRow(title = stringResource(R.string.back), onClick = { pane = AppearancePane.Root })
             }
-            TextButton(onClick = onReset) {
-                Text(stringResource(R.string.appearance_reset))
+            AppearancePane.Typeface -> {
+                PrefSection(stringResource(R.string.appearance_typeface))
+                listOf(FontSource.System, FontSource.Sans, FontSource.Serif, FontSource.Mono).forEach { source ->
+                    PrefRow(
+                        title = fontSourceLabel(source),
+                        value = if (draft.fontSource == source) "✓" else null,
+                        onClick = {
+                            onDraftChange(draft.copy(fontSource = source, importedFontId = null))
+                            pane = AppearancePane.Root
+                        },
+                    )
+                }
+                PrefRow(title = stringResource(R.string.appearance_import_font), onClick = onImportFont)
+                importedFonts.forEach { font ->
+                    PrefRow(
+                        title = font.displayName,
+                        value = if (draft.importedFontId == font.id) "✓" else "×",
+                        onClick = {
+                            onDraftChange(
+                                draft.copy(fontSource = FontSource.Imported, importedFontId = font.id),
+                            )
+                            pane = AppearancePane.Root
+                        },
+                    )
+                }
+                PrefRow(title = stringResource(R.string.back), onClick = { pane = AppearancePane.Root })
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onExportPreset) {
-                Text(stringResource(R.string.appearance_export_preset))
+            AppearancePane.Weight -> {
+                PrefSection(stringResource(R.string.appearance_text_weight))
+                TextWeightOption.entries.forEach { weight ->
+                    PrefRow(
+                        title = weight.name,
+                        value = if (draft.homeTextWeight == weight) "✓" else null,
+                        onClick = {
+                            onDraftChange(draft.copy(homeTextWeight = weight))
+                            pane = AppearancePane.Root
+                        },
+                    )
+                }
+                PrefRow(title = stringResource(R.string.back), onClick = { pane = AppearancePane.Root })
             }
-            OutlinedButton(onClick = onImportPreset) {
-                Text(stringResource(R.string.appearance_import_preset))
+            AppearancePane.Alignment -> {
+                PrefSection(stringResource(R.string.appearance_alignment))
+                HomeAlignment.entries.forEach { align ->
+                    PrefRow(
+                        title = align.name,
+                        value = if (draft.homeAlignment == align) "✓" else null,
+                        onClick = {
+                            onDraftChange(draft.copy(homeAlignment = align))
+                            pane = AppearancePane.Root
+                        },
+                    )
+                }
+                PrefRow(title = stringResource(R.string.back), onClick = { pane = AppearancePane.Root })
             }
         }
     }
 }
 
 @Composable
-private fun AppearancePreviewSample(draft: AppearanceSettings) {
+private fun AppearancePreviewQuiet(draft: AppearanceSettings) {
     val align = when (draft.homeAlignment) {
         HomeAlignment.Start -> TextAlign.Start
         HomeAlignment.Center -> TextAlign.Center
@@ -254,67 +240,53 @@ private fun AppearancePreviewSample(draft: AppearanceSettings) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(StillSpacing.sm),
-        verticalArrangement = Arrangement.spacedBy(StillSpacing.xxs),
+            .padding(vertical = StillSpacing.s8),
     ) {
-        Text("12:48", style = MaterialTheme.typography.displaySmall, textAlign = align, modifier = Modifier.fillMaxWidth())
         Text(
-            "Sunday, 21 September",
-            style = MaterialTheme.typography.titleMedium,
+            "18:51",
+            style = MaterialTheme.typography.displayMedium.copy(fontSize = StillType.clock),
+            textAlign = align,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Monday, 21 September",
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = StillType.date),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = align,
             modifier = Modifier.fillMaxWidth(),
         )
-        Text("Phone", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
-        Text("Messages", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
-        Text("Camera", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
-        Text("Music", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
         Text(
-            "○ Buy groceries",
-            style = MaterialTheme.typography.bodyLarge,
+            "Camera",
+            style = MaterialTheme.typography.headlineSmall.copy(fontSize = StillType.favorite),
+            textAlign = align,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = StillSpacing.s16),
+        )
+        Text(
+            "Messages",
+            style = MaterialTheme.typography.headlineSmall.copy(fontSize = StillType.favorite),
             textAlign = align,
             modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "○ Buy groceries",
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = StillType.task),
+            textAlign = align,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = StillSpacing.s12),
         )
     }
 }
 
-@Composable
-private fun AccentPresets(
-    selectedAccent: Int,
-    selectedBackground: Int,
-    onAccent: (Int) -> Unit,
-    onBackground: (Int) -> Unit,
-) {
-    Text(stringResource(R.string.appearance_accent), style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            0xFF1B1B1B.toInt() to "Ink",
-            0xFF0B57D0.toInt() to "Blue",
-            0xFF1B7F4E.toInt() to "Green",
-            0xFF8B1E3F.toInt() to "Wine",
-        ).forEach { (color, label) ->
-            FilterChip(
-                selected = selectedAccent == color,
-                onClick = { onAccent(color) },
-                label = { Text(label) },
-            )
-        }
-    }
-    Text(stringResource(R.string.appearance_background), style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            0xFFFAFAFA.toInt() to "Light",
-            0xFF121212.toInt() to "Dark",
-            0xFF000000.toInt() to "Black",
-            0xFFF5F0E8.toInt() to "Paper",
-        ).forEach { (color, label) ->
-            FilterChip(
-                selected = selectedBackground == color,
-                onClick = { onBackground(color) },
-                label = { Text(label) },
-            )
-        }
-    }
+private fun presetNameFor(draft: AppearanceSettings): String {
+    return AppearancePresets.all().firstOrNull { (_, preset) ->
+        preset.themeMode == draft.themeMode &&
+            preset.fontSource == draft.fontSource &&
+            preset.homeAlignment == draft.homeAlignment &&
+            preset.colorMode == draft.colorMode
+    }?.first ?: "Custom"
 }
 
 @Composable
@@ -323,13 +295,6 @@ private fun modeLabel(mode: ThemeMode): String = when (mode) {
     ThemeMode.Dark -> stringResource(R.string.appearance_mode_dark)
     ThemeMode.Black -> stringResource(R.string.appearance_mode_black)
     ThemeMode.System -> stringResource(R.string.appearance_mode_system)
-}
-
-@Composable
-private fun colorModeLabel(mode: ColorMode): String = when (mode) {
-    ColorMode.Neutral -> stringResource(R.string.appearance_color_neutral)
-    ColorMode.Dynamic -> stringResource(R.string.appearance_color_dynamic)
-    ColorMode.Custom -> stringResource(R.string.appearance_color_custom)
 }
 
 @Composable
