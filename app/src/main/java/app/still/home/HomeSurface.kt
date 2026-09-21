@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -38,6 +39,7 @@ import app.still.R
 import app.still.launcher.AppTargetId
 import app.still.launcher.FavoriteEntry
 import app.still.prefs.LauncherPreferences
+import app.still.tasks.TaskEntity
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -52,8 +54,14 @@ fun HomeSurface(
     launcherPrefs: LauncherPreferences,
     editingHome: Boolean,
     is24Hour: Boolean,
+    taskPreview: List<TaskEntity> = emptyList(),
+    taskPreviewLimit: Int = 0,
     onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenTasks: () -> Unit = {},
+    onAddTask: () -> Unit = {},
+    onTogglePreviewTaskComplete: (TaskEntity, Boolean) -> Unit = { _, _ -> },
+    onOpenTask: (TaskEntity) -> Unit = {},
     onCamera: () -> Unit,
     onPhone: () -> Unit,
     onRequestDefaultHome: () -> Unit,
@@ -190,6 +198,16 @@ fun HomeSurface(
                 }
             }
 
+            if (taskPreviewLimit > 0) {
+                TaskPreviewSection(
+                    tasks = taskPreview.take(taskPreviewLimit),
+                    onOpenTasks = onOpenTasks,
+                    onAddTask = onAddTask,
+                    onToggleComplete = onTogglePreviewTaskComplete,
+                    onOpenTask = onOpenTask,
+                )
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onCamera) {
                     Text(stringResource(R.string.open_camera))
@@ -252,6 +270,53 @@ private fun ClockBlock(
         }
         dateText?.let {
             Text(text = it, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable
+private fun TaskPreviewSection(
+    tasks: List<TaskEntity>,
+    onOpenTasks: () -> Unit,
+    onAddTask: () -> Unit,
+    onToggleComplete: (TaskEntity, Boolean) -> Unit,
+    onOpenTask: (TaskEntity) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.tasks_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        tasks.forEach { task ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Checkbox(
+                    checked = false,
+                    onCheckedChange = { onToggleComplete(task, true) },
+                )
+                TextButton(
+                    onClick = { onOpenTask(task) },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = task.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onAddTask) {
+                Text(stringResource(R.string.add_task))
+            }
+            OutlinedButton(onClick = onOpenTasks) {
+                Text(stringResource(R.string.open_tasks))
+            }
         }
     }
 }

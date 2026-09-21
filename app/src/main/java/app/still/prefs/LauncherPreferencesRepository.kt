@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import app.still.launcher.AppTargetId
@@ -24,6 +25,8 @@ data class LauncherPreferences(
     val showClock: Boolean = true,
     val showDate: Boolean = true,
     val focusSearchOnOpenApps: Boolean = true,
+    /** Home task preview size. 0 = Off. Default 3. */
+    val taskPreviewLimit: Int = 3,
 )
 
 class LauncherPreferencesRepository(
@@ -40,6 +43,7 @@ class LauncherPreferencesRepository(
             showClock = prefs[SHOW_CLOCK_KEY] ?: true,
             showDate = prefs[SHOW_DATE_KEY] ?: true,
             focusSearchOnOpenApps = prefs[FOCUS_SEARCH_KEY] ?: true,
+            taskPreviewLimit = (prefs[TASK_PREVIEW_KEY] ?: 3).coerceIn(0, 10),
         )
     }
 
@@ -119,6 +123,10 @@ class LauncherPreferencesRepository(
         dataStore.edit { it[FOCUS_SEARCH_KEY] = focus }
     }
 
+    suspend fun setTaskPreviewLimit(limit: Int) {
+        dataStore.edit { it[TASK_PREVIEW_KEY] = limit.coerceIn(0, 10) }
+    }
+
     companion object {
         private val FAVORITES_KEY = stringPreferencesKey("favorites")
         private val ALIASES_KEY = stringPreferencesKey("aliases")
@@ -127,6 +135,7 @@ class LauncherPreferencesRepository(
         private val SHOW_CLOCK_KEY = booleanPreferencesKey("show_clock")
         private val SHOW_DATE_KEY = booleanPreferencesKey("show_date")
         private val FOCUS_SEARCH_KEY = booleanPreferencesKey("focus_search_on_apps")
+        private val TASK_PREVIEW_KEY = intPreferencesKey("task_preview_limit")
 
         fun encodeAliases(map: Map<AppTargetId, String>): String =
             map.entries.joinToString(AppTargetIdCodec.RECORD_SEP) { (id, alias) ->

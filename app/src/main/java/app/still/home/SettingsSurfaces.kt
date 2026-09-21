@@ -48,6 +48,7 @@ fun SettingsSurface(
     onSetShowClock: (Boolean) -> Unit,
     onSetShowDate: (Boolean) -> Unit,
     onSetFocusSearch: (Boolean) -> Unit,
+    onSetTaskPreviewLimit: (Int) -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -100,6 +101,19 @@ fun SettingsSurface(
             checked = launcherPrefs.focusSearchOnOpenApps,
             onCheckedChange = onSetFocusSearch,
         )
+
+        Text(stringResource(R.string.task_preview), style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onSetTaskPreviewLimit(0) }) {
+                Text(stringResource(R.string.task_preview_off))
+            }
+            OutlinedButton(onClick = { onSetTaskPreviewLimit(3) }) {
+                Text(stringResource(R.string.task_preview_three))
+            }
+            OutlinedButton(onClick = { onSetTaskPreviewLimit(5) }) {
+                Text(stringResource(R.string.task_preview_five))
+            }
+        }
 
         GestureSlotRow(
             title = stringResource(R.string.camera_action),

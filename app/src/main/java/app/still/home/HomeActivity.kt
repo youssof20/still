@@ -5,9 +5,11 @@ import android.os.Bundle
 import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -15,6 +17,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -31,6 +34,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import app.still.R
 import app.still.StillApplication
 import app.still.launcher.AppLauncher
@@ -45,6 +49,9 @@ import app.still.prefs.GesturePreferences
 import app.still.prefs.GestureTargetPreference
 import app.still.prefs.LauncherPreferences
 import app.still.settings.HomeRoleHelper
+import app.still.tasks.AddTaskResult
+import app.still.tasks.TaskBackup
+import app.still.tasks.TaskEntity
 import app.still.ui.StillTheme
 import kotlinx.coroutines.launch
 
@@ -54,6 +61,9 @@ enum class StillSurface {
     Settings,
     HiddenApps,
     Picker,
+    Tasks,
+    AddTask,
+    EditTask,
 }
 
 class HomeActivity : ComponentActivity() {
@@ -74,6 +84,9 @@ class HomeActivity : ComponentActivity() {
         val app = application as StillApplication
         appLauncher = AppLauncher(this, app.appCatalog)
         defaultHomeHeld = HomeRoleHelper.isDefaultHome(this)
+        lifecycleScope.launch {
+            app.taskRepository.purgeExpiredTrash()
+        }
 
         setContent {
             StillTheme {
@@ -90,6 +103,18 @@ class HomeActivity : ComponentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val scope = rememberCoroutineScope()
 
+                val activeTasks by app.taskRepository.active.collectAsStateWithLifecycle(
+                    emptyList(),
+                )
+                val doneTasks by app.taskRepository.done.collectAsStateWithLifecycle(emptyList())
+                val trashTasks by app.taskRepository.trash.collectAsStateWithLifecycle(emptyList())
+                val taskDraft by app.taskRepository.draft.collectAsStateWithLifecycle("")
+                val previewLimit = launcherPrefs.taskPreviewLimit
+                val taskPreviewFlow = remember(previewLimit) {
+                    app.taskRepository.preview(previewLimit.coerceAtLeast(0))
+                }
+                val taskPreview by taskPreviewFlow.collectAsStateWithLifecycle(emptyList())
+
                 var surface by rememberSaveable { mutableStateOf(StillSurface.Home) }
                 var editingHome by rememberSaveable { mutableStateOf(false) }
                 var searchValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
@@ -97,6 +122,41 @@ class HomeActivity : ComponentActivity() {
                 }
                 var pickingSlot by rememberSaveable { mutableStateOf<String?>(null) }
                 var replaceFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
+                var sessionCompletedIdList by rememberSaveable {
+                    mutableStateOf(emptyList<String>())
+                }
+                val sessionCompletedIds = sessionCompletedIdList.toSet()
+                var editingTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+                var editInitialTitle by rememberSaveable { mutableStateOf("") }
+                var editTitle by rememberSaveable { mutableStateOf("") }
+                var addInitialTitle by rememberSaveable { mutableStateOf("") }
+                var addTitle by rememberSaveable { mutableStateOf("") }
+                var addFromTasks by rememberSaveable { mutableStateOf(false) }
+                var editFromTasks by rememberSaveable { mutableStateOf(true) }
+                var pendingImportTasks by remember { mutableStateOf<List<TaskEntity>?>(null) }
+
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val raw = runCatching {
+                        contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    }.getOrNull()
+                    if (raw == null) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(getString(R.string.import_failed))
+                        }
+                        return@rememberLauncherForActivityResult
+                    }
+                    val parsed = TaskBackup.parseJson(raw)
+                    if (parsed.isFailure) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(getString(R.string.import_failed))
+                        }
+                        return@rememberLauncherForActivityResult
+                    }
+                    pendingImportTasks = parsed.getOrThrow()
+                }
 
                 fun showLaunchFailure(reason: LaunchFailureReason) {
                     val message = when (reason) {
@@ -147,16 +207,117 @@ class HomeActivity : ComponentActivity() {
                     }
                 }
 
+                fun clearSessionCompleted() {
+                    if (sessionCompletedIdList.isNotEmpty()) {
+                        sessionCompletedIdList = emptyList()
+                    }
+                }
+
                 fun resetToCleanHome() {
+                    clearSessionCompleted()
                     surface = StillSurface.Home
                     pickingSlot = null
                     replaceFavoriteId = null
                     editingHome = false
+                    editingTaskId = null
+                    editInitialTitle = ""
+                    editTitle = ""
+                    addInitialTitle = ""
+                    addTitle = ""
+                    addFromTasks = false
+                    editFromTasks = true
                     searchValue = TextFieldValue()
+                }
+
+                fun navigateBack() {
+                    when (surface) {
+                        StillSurface.AddTask -> {
+                            // Draft is already persisted via setDraft; do not clear on back.
+                            surface = if (addFromTasks) StillSurface.Tasks else StillSurface.Home
+                            addFromTasks = false
+                        }
+                        StillSurface.EditTask -> {
+                            editingTaskId = null
+                            editInitialTitle = ""
+                            editTitle = ""
+                            surface = if (editFromTasks) StillSurface.Tasks else StillSurface.Home
+                            editFromTasks = true
+                        }
+                        StillSurface.Tasks -> resetToCleanHome()
+                        else -> resetToCleanHome()
+                    }
+                }
+
+                fun shareText(content: String, mimeType: String, chooserTitle: String) {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = mimeType
+                        putExtra(Intent.EXTRA_TEXT, content)
+                    }
+                    startActivity(Intent.createChooser(send, chooserTitle))
+                }
+
+                fun openAddTask(fromTasks: Boolean) {
+                    addFromTasks = fromTasks
+                    addInitialTitle = taskDraft
+                    addTitle = taskDraft
+                    surface = StillSurface.AddTask
+                }
+
+                fun openEditTask(task: TaskEntity, fromTasks: Boolean) {
+                    editingTaskId = task.id
+                    editInitialTitle = task.title
+                    editTitle = task.title
+                    editFromTasks = fromTasks
+                    surface = StillSurface.EditTask
                 }
 
                 LaunchedEffect(homeInvocation) {
                     resetToCleanHome()
+                }
+
+                LaunchedEffect(surface) {
+                    if (surface != StillSurface.Tasks &&
+                        surface != StillSurface.EditTask &&
+                        surface != StillSurface.AddTask
+                    ) {
+                        clearSessionCompleted()
+                    }
+                }
+
+                pendingImportTasks?.let { tasks ->
+                    AlertDialog(
+                        onDismissRequest = { pendingImportTasks = null },
+                        title = { Text(stringResource(R.string.import_tasks_json)) },
+                        text = {
+                            Column {
+                                TextButton(onClick = {
+                                    val toImport = tasks
+                                    pendingImportTasks = null
+                                    scope.launch {
+                                        app.taskRepository.importReplace(toImport)
+                                        snackbarHostState.showSnackbar(getString(R.string.import_ok))
+                                    }
+                                }) {
+                                    Text(stringResource(R.string.import_replace))
+                                }
+                                TextButton(onClick = {
+                                    val toImport = tasks
+                                    pendingImportTasks = null
+                                    scope.launch {
+                                        app.taskRepository.importMerge(toImport)
+                                        snackbarHostState.showSnackbar(getString(R.string.import_ok))
+                                    }
+                                }) {
+                                    Text(stringResource(R.string.import_merge))
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { pendingImportTasks = null }) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        },
+                    )
                 }
 
                 StillAppScaffold(
@@ -170,6 +331,13 @@ class HomeActivity : ComponentActivity() {
                     snackbarHostState = snackbarHostState,
                     pickingSlot = pickingSlot?.let { GestureActionSlot.valueOf(it) },
                     is24Hour = DateFormat.is24HourFormat(this),
+                    activeTasks = activeTasks,
+                    doneTasks = doneTasks,
+                    trashTasks = trashTasks,
+                    taskPreview = taskPreview,
+                    addInitialTitle = addInitialTitle,
+                    editInitialTitle = editInitialTitle,
+                    sessionCompletedIds = sessionCompletedIds,
                     onSearchChange = { searchValue = it },
                     onOpenApps = { surface = StillSurface.Apps },
                     onOpenSettings = {
@@ -177,7 +345,8 @@ class HomeActivity : ComponentActivity() {
                         surface = StillSurface.Settings
                     },
                     onOpenHiddenApps = { surface = StillSurface.HiddenApps },
-                    onBackToHome = { resetToCleanHome() },
+                    onOpenTasks = { surface = StillSurface.Tasks },
+                    onBack = { navigateBack() },
                     onRequestDefaultHome = {
                         homeRoleLauncher.launch(HomeRoleHelper.createHomeRoleRequestIntent(this))
                     },
@@ -274,6 +443,112 @@ class HomeActivity : ComponentActivity() {
                     onSetFocusSearch = { focus ->
                         scope.launch { app.launcherPreferences.setFocusSearchOnOpenApps(focus) }
                     },
+                    onSetTaskPreviewLimit = { limit ->
+                        scope.launch { app.launcherPreferences.setTaskPreviewLimit(limit) }
+                    },
+                    onAddTaskFromHome = { openAddTask(fromTasks = false) },
+                    onAddTaskFromTasks = { openAddTask(fromTasks = true) },
+                    onOpenTaskFromHome = { openEditTask(it, fromTasks = false) },
+                    onOpenTaskFromTasks = { openEditTask(it, fromTasks = true) },
+                    onTogglePreviewTaskComplete = { task, completed ->
+                        scope.launch { app.taskRepository.setCompleted(task.id, completed) }
+                    },
+                    onToggleTaskComplete = { task, completed ->
+                        scope.launch {
+                            app.taskRepository.setCompleted(task.id, completed)
+                            sessionCompletedIdList = if (completed) {
+                                sessionCompletedIdList + task.id
+                            } else {
+                                sessionCompletedIdList - task.id
+                            }
+                        }
+                    },
+                    onMoveTask = { id, towardStart ->
+                        scope.launch { app.taskRepository.moveActive(id, towardStart) }
+                    },
+                    onTrashTask = { task ->
+                        scope.launch {
+                            app.taskRepository.moveToTrash(task.id)
+                            sessionCompletedIdList = sessionCompletedIdList - task.id
+                        }
+                    },
+                    onRestoreDone = { task ->
+                        scope.launch {
+                            app.taskRepository.setCompleted(task.id, false)
+                            sessionCompletedIdList = sessionCompletedIdList - task.id
+                        }
+                    },
+                    onRestoreTrash = { task ->
+                        scope.launch { app.taskRepository.restoreFromTrash(task.id) }
+                    },
+                    onDeleteForever = { task ->
+                        scope.launch { app.taskRepository.permanentlyDelete(task.id) }
+                    },
+                    onEmptyTrash = {
+                        scope.launch { app.taskRepository.permanentlyDeleteAllTrash() }
+                    },
+                    onExportJson = {
+                        scope.launch {
+                            val json = TaskBackup.toJson(app.taskRepository.exportAll())
+                            shareText(json, "application/json", getString(R.string.export_tasks_json))
+                        }
+                    },
+                    onExportMarkdown = {
+                        scope.launch {
+                            val md = TaskBackup.toMarkdown(app.taskRepository.exportAll())
+                            shareText(md, "text/markdown", getString(R.string.export_tasks_markdown))
+                        }
+                    },
+                    onImportJson = {
+                        importLauncher.launch(arrayOf("application/json", "text/*"))
+                    },
+                    onDraftChange = { text ->
+                        addTitle = text
+                        scope.launch { app.taskRepository.setDraft(text) }
+                    },
+                    onEditTitleChange = { editTitle = it },
+                    onSaveAddTask = {
+                        scope.launch {
+                            when (app.taskRepository.addTask(addTitle)) {
+                                is AddTaskResult.Created,
+                                AddTaskResult.DuplicateIgnored,
+                                -> {
+                                    surface = if (addFromTasks) {
+                                        StillSurface.Tasks
+                                    } else {
+                                        StillSurface.Home
+                                    }
+                                    addFromTasks = false
+                                    addInitialTitle = ""
+                                    addTitle = ""
+                                }
+                                AddTaskResult.BlankTitle -> {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.task_blank_title),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    onSaveEditTask = {
+                        val id = editingTaskId ?: return@StillAppScaffold
+                        scope.launch {
+                            val ok = app.taskRepository.updateTitle(id, editTitle)
+                            if (!ok) {
+                                snackbarHostState.showSnackbar(getString(R.string.task_blank_title))
+                            } else {
+                                editingTaskId = null
+                                editInitialTitle = ""
+                                editTitle = ""
+                                surface = if (editFromTasks) {
+                                    StillSurface.Tasks
+                                } else {
+                                    StillSurface.Home
+                                }
+                                editFromTasks = true
+                            }
+                        }
+                    },
                     replacingFavorite = replaceFavoriteId != null,
                 )
             }
@@ -289,7 +564,11 @@ class HomeActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         defaultHomeHeld = HomeRoleHelper.isDefaultHome(this)
-        (application as StillApplication).appCatalog.refresh()
+        val app = application as StillApplication
+        app.appCatalog.refresh()
+        lifecycleScope.launch {
+            app.taskRepository.purgeExpiredTrash()
+        }
     }
 }
 
@@ -312,11 +591,19 @@ private fun StillAppScaffold(
     snackbarHostState: SnackbarHostState,
     pickingSlot: GestureActionSlot?,
     is24Hour: Boolean,
+    activeTasks: List<TaskEntity>,
+    doneTasks: List<TaskEntity>,
+    trashTasks: List<TaskEntity>,
+    taskPreview: List<TaskEntity>,
+    addInitialTitle: String,
+    editInitialTitle: String,
+    sessionCompletedIds: Set<String>,
     onSearchChange: (TextFieldValue) -> Unit,
     onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHiddenApps: () -> Unit,
-    onBackToHome: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onBack: () -> Unit,
     onRequestDefaultHome: () -> Unit,
     onOpenHomeSettings: () -> Unit,
     onLaunchTarget: (AppTargetId) -> Unit,
@@ -339,6 +626,26 @@ private fun StillAppScaffold(
     onSetShowClock: (Boolean) -> Unit,
     onSetShowDate: (Boolean) -> Unit,
     onSetFocusSearch: (Boolean) -> Unit,
+    onSetTaskPreviewLimit: (Int) -> Unit,
+    onAddTaskFromHome: () -> Unit,
+    onAddTaskFromTasks: () -> Unit,
+    onOpenTaskFromHome: (TaskEntity) -> Unit,
+    onOpenTaskFromTasks: (TaskEntity) -> Unit,
+    onTogglePreviewTaskComplete: (TaskEntity, Boolean) -> Unit,
+    onToggleTaskComplete: (TaskEntity, Boolean) -> Unit,
+    onMoveTask: (String, Boolean) -> Unit,
+    onTrashTask: (TaskEntity) -> Unit,
+    onRestoreDone: (TaskEntity) -> Unit,
+    onRestoreTrash: (TaskEntity) -> Unit,
+    onDeleteForever: (TaskEntity) -> Unit,
+    onEmptyTrash: () -> Unit,
+    onExportJson: () -> Unit,
+    onExportMarkdown: () -> Unit,
+    onImportJson: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onEditTitleChange: (String) -> Unit,
+    onSaveAddTask: () -> Unit,
+    onSaveEditTask: () -> Unit,
     replacingFavorite: Boolean,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -357,9 +664,9 @@ private fun StillAppScaffold(
             editingHome && surface == StillSurface.Home -> onExitEditHome()
             surface == StillSurface.Apps -> {
                 keyboard?.hide()
-                onBackToHome()
+                onBack()
             }
-            surface != StillSurface.Home -> onBackToHome()
+            surface != StillSurface.Home -> onBack()
         }
     }
 
@@ -378,6 +685,9 @@ private fun StillAppScaffold(
                             StillSurface.Apps -> stringResource(R.string.apps_title)
                             StillSurface.Settings -> stringResource(R.string.settings_title)
                             StillSurface.HiddenApps -> stringResource(R.string.hidden_apps)
+                            StillSurface.Tasks -> stringResource(R.string.tasks_title)
+                            StillSurface.AddTask -> stringResource(R.string.add_task)
+                            StillSurface.EditTask -> stringResource(R.string.edit_task)
                             StillSurface.Picker -> when {
                                 replacingFavorite -> stringResource(R.string.recover_target)
                                 pickingSlot == GestureActionSlot.Camera ->
@@ -396,7 +706,7 @@ private fun StillAppScaffold(
                             if (editingHome && surface == StillSurface.Home) {
                                 onExitEditHome()
                             } else {
-                                onBackToHome()
+                                onBack()
                             }
                         }) {
                             Text(
@@ -429,8 +739,14 @@ private fun StillAppScaffold(
                 launcherPrefs = launcherPrefs,
                 editingHome = editingHome,
                 is24Hour = is24Hour,
+                taskPreview = taskPreview,
+                taskPreviewLimit = launcherPrefs.taskPreviewLimit,
                 onOpenApps = onOpenApps,
                 onOpenSettings = onOpenSettings,
+                onOpenTasks = onOpenTasks,
+                onAddTask = onAddTaskFromHome,
+                onTogglePreviewTaskComplete = onTogglePreviewTaskComplete,
+                onOpenTask = onOpenTaskFromHome,
                 onCamera = onCamera,
                 onPhone = onPhone,
                 onRequestDefaultHome = onRequestDefaultHome,
@@ -477,6 +793,7 @@ private fun StillAppScaffold(
                 onSetShowClock = onSetShowClock,
                 onSetShowDate = onSetShowDate,
                 onSetFocusSearch = onSetFocusSearch,
+                onSetTaskPreviewLimit = onSetTaskPreviewLimit,
             )
             StillSurface.HiddenApps -> HiddenAppsSurface(
                 modifier = contentModifier,
@@ -495,6 +812,41 @@ private fun StillAppScaffold(
                         onSelectTargetForSlot(slot, id)
                     }
                 },
+            )
+            StillSurface.Tasks -> TasksSurface(
+                modifier = contentModifier,
+                active = activeTasks,
+                done = doneTasks,
+                trash = trashTasks,
+                sessionCompletedIds = sessionCompletedIds,
+                onAddTask = onAddTaskFromTasks,
+                onToggleComplete = onToggleTaskComplete,
+                onEdit = onOpenTaskFromTasks,
+                onMove = onMoveTask,
+                onTrash = onTrashTask,
+                onRestoreDone = onRestoreDone,
+                onRestoreTrash = onRestoreTrash,
+                onDeleteForever = onDeleteForever,
+                onEmptyTrash = onEmptyTrash,
+                onExportJson = onExportJson,
+                onExportMarkdown = onExportMarkdown,
+                onImportJson = onImportJson,
+            )
+            StillSurface.AddTask -> AddOrEditTaskSurface(
+                modifier = contentModifier,
+                initialTitle = addInitialTitle,
+                isEdit = false,
+                onTitleChange = onDraftChange,
+                onSave = onSaveAddTask,
+                onCancel = onBack,
+            )
+            StillSurface.EditTask -> AddOrEditTaskSurface(
+                modifier = contentModifier,
+                initialTitle = editInitialTitle,
+                isEdit = true,
+                onTitleChange = onEditTitleChange,
+                onSave = onSaveEditTask,
+                onCancel = onBack,
             )
         }
     }
