@@ -12,17 +12,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -39,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import app.still.BuildConfig
 import app.still.R
 import app.still.StillApplication
 import app.still.appearance.AppearanceSettings
@@ -48,26 +51,31 @@ import app.still.appearance.ThemePresetCodec
 import app.still.appearance.rememberResolvedAppearance
 import app.still.launcher.AppLauncher
 import app.still.launcher.AppShortcutItem
+import app.still.launcher.AppTarget
 import app.still.launcher.AppTargetId
 import app.still.launcher.AppVisibility
 import app.still.launcher.CatalogOverlay
 import app.still.launcher.HideMode
 import app.still.launcher.LaunchFailureReason
 import app.still.launcher.LaunchResult
-import app.still.prefs.GestureActionSlot
+import app.still.launcher.SystemAppIntents
+import app.still.prefs.GestureAction
+import app.still.prefs.GestureDirection
 import app.still.prefs.GesturePreferences
-import app.still.prefs.GestureTargetPreference
+import app.still.prefs.HomeVerticalPlacement
 import app.still.prefs.LauncherPreferences
 import app.still.settings.HomeRoleHelper
 import app.still.tasks.AddTaskResult
 import app.still.tasks.TaskBackup
 import app.still.tasks.TaskEntity
+import app.still.ui.StillSpacing
 import app.still.ui.StillTheme
 import app.still.widgets.RememberWidgetHostListening
 import app.still.widgets.StillWidgetHostController
 import app.still.widgets.WidgetBindFlow
 import app.still.widgets.WidgetPlacement
 import app.still.widgets.WidgetProviderOption
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 enum class StillSurface {
@@ -77,11 +85,20 @@ enum class StillSurface {
     Appearance,
     HiddenApps,
     Widgets,
+    Gestures,
+    GestureActionPicker,
+    Onboarding,
     Picker,
     Tasks,
     AddTask,
     EditTask,
 }
+
+private const val PICKER_GESTURE_APP = "gesture_app"
+private const val PICKER_CLOCK_APP = "clock_app"
+private const val PICKER_DATE_APP = "date_app"
+private const val PICKER_FAVORITE_REPLACE = "favorite_replace"
+private const val PICKER_ADD_FAVORITE = "add_favorite"
 
 class HomeActivity : ComponentActivity() {
     private lateinit var appLauncher: AppLauncher
@@ -124,7 +141,10 @@ class HomeActivity : ComponentActivity() {
                 surface == StillSurface.Settings ||
                     surface == StillSurface.Appearance ||
                     surface == StillSurface.HiddenApps ||
-                    surface == StillSurface.Widgets
+                    surface == StillSurface.Widgets ||
+                    surface == StillSurface.Gestures ||
+                    surface == StillSurface.GestureActionPicker ||
+                    surface == StillSurface.Onboarding
 
             SideEffect {
                 runCatching {
@@ -175,8 +195,14 @@ class HomeActivity : ComponentActivity() {
                 var searchValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
                     mutableStateOf(TextFieldValue())
                 }
-                var pickingSlot by rememberSaveable { mutableStateOf<String?>(null) }
+                var pickingGestureDirection by rememberSaveable { mutableStateOf<String?>(null) }
+                var pickerPurpose by rememberSaveable { mutableStateOf<String?>(null) }
                 var replaceFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
+                var renameFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
+                var renameDraft by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+                    mutableStateOf(TextFieldValue())
+                }
+                var onboardingFromSettings by rememberSaveable { mutableStateOf(false) }
                 var sessionCompletedIdList by rememberSaveable {
                     mutableStateOf(emptyList<String>())
                 }
@@ -397,37 +423,66 @@ class HomeActivity : ComponentActivity() {
                     }
                 }
 
-                fun launchGesture(slot: GestureActionSlot) {
-                    val preference = when (slot) {
-                        GestureActionSlot.Camera -> gestures.camera
-                        GestureActionSlot.Phone -> gestures.phone
-                    }
-                    when (preference) {
-                        GestureTargetPreference.Disabled -> Unit
-                        GestureTargetPreference.Unset -> {
-                            pickingSlot = slot.name
-                            replaceFavoriteId = null
-                            surface = StillSurface.Picker
-                        }
-                        is GestureTargetPreference.Target -> {
-                            val stillPresent = catalog.any { it.id == preference.id }
-                            if (!stillPresent) {
+                fun runGesture(direction: GestureDirection) {
+                    when (val action = gestures.action(direction)) {
+                        GestureAction.None -> Unit
+                        GestureAction.Apps -> surface = StillSurface.Apps
+                        GestureAction.Tasks -> surface = StillSurface.Tasks
+                        GestureAction.Notifications -> {
+                            if (!SystemAppIntents.expandNotifications(this@HomeActivity)) {
                                 scope.launch {
                                     snackbarHostState.showSnackbar(
-                                        getString(
-                                            R.string.gesture_target_missing,
-                                            slot.name.lowercase(),
-                                        ),
+                                        getString(R.string.shade_unavailable),
                                     )
                                 }
-                                pickingSlot = slot.name
-                                replaceFavoriteId = null
-                                surface = StillSurface.Picker
-                            } else {
-                                launchTarget(preference.id)
                             }
                         }
+                        GestureAction.QuickSettings -> {
+                            if (!SystemAppIntents.expandQuickSettings(this@HomeActivity)) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.shade_unavailable),
+                                    )
+                                }
+                            }
+                        }
+                        GestureAction.Lock -> {
+                            if (!SystemAppIntents.lockScreen(this@HomeActivity)) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.lock_unavailable),
+                                    )
+                                }
+                            }
+                        }
+                        GestureAction.OpenCamera -> {
+                            if (!SystemAppIntents.openDefaultCamera(this@HomeActivity)) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.app_unavailable),
+                                    )
+                                }
+                            }
+                        }
+                        GestureAction.OpenPhone -> {
+                            if (!SystemAppIntents.openDefaultPhone(this@HomeActivity)) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.app_unavailable),
+                                    )
+                                }
+                            }
+                        }
+                        is GestureAction.App -> launchTarget(action.id)
                     }
+                }
+
+                fun finishOnboarding() {
+                    scope.launch {
+                        app.launcherPreferences.setOnboardingCompleted(true)
+                    }
+                    onboardingFromSettings = false
+                    surface = StillSurface.Home
                 }
 
                 fun clearSessionCompleted() {
@@ -439,8 +494,10 @@ class HomeActivity : ComponentActivity() {
                 fun resetToCleanHome() {
                     clearSessionCompleted()
                     surface = StillSurface.Home
-                    pickingSlot = null
+                    pickingGestureDirection = null
+                    pickerPurpose = null
                     replaceFavoriteId = null
+                    renameFavoriteId = null
                     editingHome = false
                     editingTaskId = null
                     editInitialTitle = ""
@@ -450,13 +507,13 @@ class HomeActivity : ComponentActivity() {
                     addFromTasks = false
                     editFromTasks = true
                     pickingWidgetProvider = false
+                    onboardingFromSettings = false
                     searchValue = TextFieldValue()
                 }
 
                 fun navigateBack() {
                     when (surface) {
                         StillSurface.AddTask -> {
-                            // Draft is already persisted via setDraft; do not clear on back.
                             surface = if (addFromTasks) StillSurface.Tasks else StillSurface.Home
                             addFromTasks = false
                         }
@@ -476,6 +533,38 @@ class HomeActivity : ComponentActivity() {
                                 pickingWidgetProvider = false
                             } else {
                                 surface = StillSurface.Settings
+                            }
+                        }
+                        StillSurface.Gestures -> surface = StillSurface.Settings
+                        StillSurface.GestureActionPicker -> {
+                            pickingGestureDirection = null
+                            surface = StillSurface.Gestures
+                        }
+                        StillSurface.Onboarding -> {
+                            if (onboardingFromSettings) {
+                                onboardingFromSettings = false
+                                surface = StillSurface.Settings
+                            } else {
+                                finishOnboarding()
+                            }
+                        }
+                        StillSurface.Picker -> {
+                            when (pickerPurpose) {
+                                PICKER_GESTURE_APP -> {
+                                    pickerPurpose = null
+                                    surface = StillSurface.GestureActionPicker
+                                }
+                                PICKER_CLOCK_APP, PICKER_DATE_APP -> {
+                                    pickerPurpose = null
+                                    surface = StillSurface.Settings
+                                }
+                                PICKER_FAVORITE_REPLACE, PICKER_ADD_FAVORITE -> {
+                                    pickerPurpose = null
+                                    replaceFavoriteId = null
+                                    surface = StillSurface.Home
+                                    editingHome = true
+                                }
+                                else -> resetToCleanHome()
                             }
                         }
                         StillSurface.Tasks -> resetToCleanHome()
@@ -507,7 +596,16 @@ class HomeActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(homeInvocation) {
-                    resetToCleanHome()
+                    if (homeInvocation > 0) {
+                        resetToCleanHome()
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    val prefs = app.launcherPreferences.preferences.first()
+                    if (!prefs.onboardingCompleted) {
+                        surface = StillSurface.Onboarding
+                    }
                 }
 
                 LaunchedEffect(surface) {
@@ -555,6 +653,55 @@ class HomeActivity : ComponentActivity() {
                     )
                 }
 
+                renameFavoriteId?.let { encodedId ->
+                    val id = AppTargetIdCodecKey.decode(encodedId)
+                    val target = id?.let { targetId -> catalog.find { it.id == targetId } }
+                    if (id == null) {
+                        renameFavoriteId = null
+                    } else {
+                        AlertDialog(
+                            onDismissRequest = { renameFavoriteId = null },
+                            title = { Text(stringResource(R.string.rename_dialog_title)) },
+                            text = {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(StillSpacing.xs),
+                                ) {
+                                    Text(stringResource(R.string.rename_dialog_hint))
+                                    if (target != null) {
+                                        Text(
+                                            stringResource(
+                                                R.string.original_label,
+                                                target.originalLabel,
+                                            ),
+                                        )
+                                    }
+                                    OutlinedTextField(
+                                        value = renameDraft,
+                                        onValueChange = { renameDraft = it },
+                                        singleLine = true,
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    val alias = renameDraft.text.trim().ifBlank { null }
+                                    scope.launch {
+                                        app.launcherPreferences.setAlias(id, alias)
+                                    }
+                                    renameFavoriteId = null
+                                }) {
+                                    Text(stringResource(R.string.apply))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { renameFavoriteId = null }) {
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            },
+                        )
+                    }
+                }
+
                 StillAppScaffold(
                     surface = surface,
                     editingHome = editingHome,
@@ -564,8 +711,9 @@ class HomeActivity : ComponentActivity() {
                     launcherPrefs = launcherPrefs,
                     searchValue = searchValue,
                     snackbarHostState = snackbarHostState,
-                    pickingSlot = pickingSlot?.let { GestureActionSlot.valueOf(it) },
+                    pickerPurpose = pickerPurpose,
                     is24Hour = DateFormat.is24HourFormat(this),
+                    versionName = BuildConfig.VERSION_NAME,
                     activeTasks = activeTasks,
                     doneTasks = doneTasks,
                     trashTasks = trashTasks,
@@ -588,8 +736,14 @@ class HomeActivity : ComponentActivity() {
                         pickingWidgetProvider = false
                         surface = StillSurface.Widgets
                     },
+                    onOpenGestures = { surface = StillSurface.Gestures },
+                    onOpenOnboarding = {
+                        onboardingFromSettings = true
+                        surface = StillSurface.Onboarding
+                    },
                     onOpenTasks = { surface = StillSurface.Tasks },
                     onBack = { navigateBack() },
+                    onFinishOnboarding = { finishOnboarding() },
                     onRequestDefaultHome = {
                         homeRoleLauncher.launch(HomeRoleHelper.createHomeRoleRequestIntent(this))
                     },
@@ -597,6 +751,66 @@ class HomeActivity : ComponentActivity() {
                         startActivity(HomeRoleHelper.createHomeSettingsIntent())
                     },
                     onLaunchTarget = { launchTarget(it) },
+                    onGesture = { direction -> runGesture(direction) },
+                    onTapClock = {
+                        if (!launcherPrefs.clockTapEnabled) return@StillAppScaffold
+                        val clockId = launcherPrefs.clockAppId
+                        if (clockId != null) {
+                            launchTarget(clockId)
+                        } else if (!SystemAppIntents.openDefaultClock(this)) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(getString(R.string.app_unavailable))
+                            }
+                        }
+                    },
+                    onTapDate = {
+                        if (!launcherPrefs.dateTapEnabled) return@StillAppScaffold
+                        val dateId = launcherPrefs.dateAppId
+                        if (dateId != null) {
+                            launchTarget(dateId)
+                        } else if (!SystemAppIntents.openDefaultCalendar(this)) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(getString(R.string.app_unavailable))
+                            }
+                        }
+                    },
+                    onPickGestureAction = { direction ->
+                        pickingGestureDirection = direction.name
+                        surface = StillSurface.GestureActionPicker
+                    },
+                    onSelectGestureAction = { action ->
+                        val directionName = pickingGestureDirection
+                        if (directionName != null) {
+                            val direction = runCatching {
+                                GestureDirection.valueOf(directionName)
+                            }.getOrNull()
+                            if (direction != null) {
+                                scope.launch {
+                                    app.gesturePreferences.setAction(direction, action)
+                                }
+                            }
+                        }
+                        pickingGestureDirection = null
+                        surface = StillSurface.Gestures
+                    },
+                    onChooseGestureInstalledApp = {
+                        pickerPurpose = PICKER_GESTURE_APP
+                        surface = StillSurface.Picker
+                    },
+                    onPickClockApp = {
+                        pickerPurpose = PICKER_CLOCK_APP
+                        surface = StillSurface.Picker
+                    },
+                    onPickDateApp = {
+                        pickerPurpose = PICKER_DATE_APP
+                        surface = StillSurface.Picker
+                    },
+                    onClearClockApp = {
+                        scope.launch { app.launcherPreferences.setClockApp(null) }
+                    },
+                    onClearDateApp = {
+                        scope.launch { app.launcherPreferences.setDateApp(null) }
+                    },
                     workProfilePaused = app.appShortcuts.workProfilesPaused(),
                     hasWorkProfile = app.appShortcuts.hasWorkProfile(),
                     shortcutsFor = { app.appShortcuts.listShortcuts(it) },
@@ -627,28 +841,6 @@ class HomeActivity : ComponentActivity() {
                     onStartPickWidget = { pickingWidgetProvider = true },
                     onCancelPickWidget = { pickingWidgetProvider = false },
                     onSelectWidgetProvider = { startAddWidget(it) },
-                    onCamera = { launchGesture(GestureActionSlot.Camera) },
-                    onPhone = { launchGesture(GestureActionSlot.Phone) },
-                    onPickSlot = { slot ->
-                        pickingSlot = slot.name
-                        replaceFavoriteId = null
-                        surface = StillSurface.Picker
-                    },
-                    onDisableSlot = { slot ->
-                        scope.launch {
-                            app.gesturePreferences.setTarget(slot, GestureTargetPreference.Disabled)
-                        }
-                    },
-                    onSelectTargetForSlot = { slot, targetId ->
-                        scope.launch {
-                            app.gesturePreferences.setTarget(
-                                slot,
-                                GestureTargetPreference.Target(targetId),
-                            )
-                            pickingSlot = null
-                            surface = StillSurface.Settings
-                        }
-                    },
                     onEnterEditHome = {
                         if (launcherPrefs.layoutLocked) {
                             scope.launch {
@@ -668,28 +860,89 @@ class HomeActivity : ComponentActivity() {
                     onMoveFavorite = { id, up ->
                         scope.launch { app.launcherPreferences.moveFavorite(id, towardStart = up) }
                     },
+                    onRenameFavorite = { id ->
+                        val target = catalog.find { it.id == id }
+                        renameDraft = TextFieldValue(target?.alias ?: target?.originalLabel ?: "")
+                        renameFavoriteId = AppTargetIdCodecKey.encode(id)
+                    },
+                    onHideFavorite = { id ->
+                        scope.launch {
+                            app.launcherPreferences.setHideMode(id, HideMode.FromBrowsing)
+                        }
+                    },
+                    onUninstallFavorite = { id ->
+                        SystemAppIntents.requestUninstall(this, id.packageName)
+                    },
+                    onUninstall = { id ->
+                        SystemAppIntents.requestUninstall(this, id.packageName)
+                    },
                     onReplaceFavorite = { id ->
                         replaceFavoriteId = AppTargetIdCodecKey.encode(id)
-                        pickingSlot = null
+                        pickerPurpose = PICKER_FAVORITE_REPLACE
                         surface = StillSurface.Picker
                     },
-                    onSelectReplacementFavorite = { newId ->
-                        val oldKey = replaceFavoriteId
-                        scope.launch {
-                            if (oldKey != null) {
-                                val oldId = AppTargetIdCodecKey.decode(oldKey)
-                                if (oldId != null) {
-                                    val updated = launcherPrefs.favoriteIds.map {
-                                        if (it == oldId) newId else it
-                                    }.distinct()
-                                    app.launcherPreferences.setFavorites(updated)
+                    onAddFavoritePick = {
+                        replaceFavoriteId = null
+                        pickerPurpose = PICKER_ADD_FAVORITE
+                        surface = StillSurface.Picker
+                    },
+                    onSelectPickerTarget = { newId ->
+                        when (pickerPurpose) {
+                            PICKER_GESTURE_APP -> {
+                                val directionName = pickingGestureDirection
+                                val direction = directionName?.let {
+                                    runCatching { GestureDirection.valueOf(it) }.getOrNull()
                                 }
-                            } else {
-                                app.launcherPreferences.addFavorite(newId)
+                                if (direction != null) {
+                                    scope.launch {
+                                        app.gesturePreferences.setAction(
+                                            direction,
+                                            GestureAction.App(newId),
+                                        )
+                                    }
+                                }
+                                pickerPurpose = null
+                                pickingGestureDirection = null
+                                surface = StillSurface.Gestures
                             }
-                            replaceFavoriteId = null
-                            surface = StillSurface.Home
-                            editingHome = true
+                            PICKER_CLOCK_APP -> {
+                                scope.launch { app.launcherPreferences.setClockApp(newId) }
+                                pickerPurpose = null
+                                surface = StillSurface.Settings
+                            }
+                            PICKER_DATE_APP -> {
+                                scope.launch { app.launcherPreferences.setDateApp(newId) }
+                                pickerPurpose = null
+                                surface = StillSurface.Settings
+                            }
+                            PICKER_FAVORITE_REPLACE -> {
+                                val oldKey = replaceFavoriteId
+                                scope.launch {
+                                    if (oldKey != null) {
+                                        val oldId = AppTargetIdCodecKey.decode(oldKey)
+                                        if (oldId != null) {
+                                            val updated = launcherPrefs.favoriteIds.map {
+                                                if (it == oldId) newId else it
+                                            }.distinct()
+                                            app.launcherPreferences.setFavorites(updated)
+                                        }
+                                    }
+                                    replaceFavoriteId = null
+                                    pickerPurpose = null
+                                    surface = StillSurface.Home
+                                    editingHome = true
+                                }
+                            }
+                            PICKER_ADD_FAVORITE -> {
+                                scope.launch {
+                                    app.launcherPreferences.addFavorite(newId)
+                                    replaceFavoriteId = null
+                                    pickerPurpose = null
+                                    surface = StillSurface.Home
+                                    editingHome = true
+                                }
+                            }
+                            else -> Unit
                         }
                     },
                     onSetAlias = { id, alias ->
@@ -707,17 +960,41 @@ class HomeActivity : ComponentActivity() {
                     onSetLayoutLocked = { locked ->
                         scope.launch { app.launcherPreferences.setLayoutLocked(locked) }
                     },
+                    onToggleLayoutLock = {
+                        scope.launch {
+                            app.launcherPreferences.setLayoutLocked(!launcherPrefs.layoutLocked)
+                        }
+                    },
+                    onDismissEmptyHint = {
+                        scope.launch {
+                            app.launcherPreferences.setFavoritesEmptyHintDismissed(true)
+                        }
+                    },
                     onSetShowClock = { show ->
                         scope.launch { app.launcherPreferences.setShowClock(show) }
                     },
                     onSetShowDate = { show ->
                         scope.launch { app.launcherPreferences.setShowDate(show) }
                     },
+                    onSetClockTapEnabled = { enabled ->
+                        scope.launch { app.launcherPreferences.setClockTapEnabled(enabled) }
+                    },
+                    onSetDateTapEnabled = { enabled ->
+                        scope.launch { app.launcherPreferences.setDateTapEnabled(enabled) }
+                    },
                     onSetFocusSearch = { focus ->
                         scope.launch { app.launcherPreferences.setFocusSearchOnOpenApps(focus) }
                     },
                     onSetTaskPreviewLimit = { limit ->
                         scope.launch { app.launcherPreferences.setTaskPreviewLimit(limit) }
+                    },
+                    onSetHaptic = { enabled ->
+                        scope.launch { app.launcherPreferences.setHapticFeedback(enabled) }
+                    },
+                    onSetVerticalPlacement = { placement ->
+                        scope.launch {
+                            app.launcherPreferences.setHomeVerticalPlacement(placement)
+                        }
                     },
                     onAddTaskFromHome = { openAddTask(fromTasks = false) },
                     onAddTaskFromTasks = { openAddTask(fromTasks = true) },
@@ -882,7 +1159,6 @@ class HomeActivity : ComponentActivity() {
                             arrayOf("application/json", "text/*"),
                         )
                     },
-                    replacingFavorite = replaceFavoriteId != null,
                 )
             }
         }
@@ -929,13 +1205,14 @@ private fun StillAppScaffold(
     surface: StillSurface,
     editingHome: Boolean,
     defaultHomeHeld: Boolean,
-    catalog: List<app.still.launcher.AppTarget>,
+    catalog: List<AppTarget>,
     gestures: GesturePreferences,
     launcherPrefs: LauncherPreferences,
     searchValue: TextFieldValue,
     snackbarHostState: SnackbarHostState,
-    pickingSlot: GestureActionSlot?,
+    pickerPurpose: String?,
     is24Hour: Boolean,
+    versionName: String,
     activeTasks: List<TaskEntity>,
     doneTasks: List<TaskEntity>,
     trashTasks: List<TaskEntity>,
@@ -949,11 +1226,24 @@ private fun StillAppScaffold(
     onOpenHiddenApps: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenWidgets: () -> Unit,
+    onOpenGestures: () -> Unit,
+    onOpenOnboarding: () -> Unit,
     onOpenTasks: () -> Unit,
     onBack: () -> Unit,
+    onFinishOnboarding: () -> Unit,
     onRequestDefaultHome: () -> Unit,
     onOpenHomeSettings: () -> Unit,
     onLaunchTarget: (AppTargetId) -> Unit,
+    onGesture: (GestureDirection) -> Unit,
+    onTapClock: () -> Unit,
+    onTapDate: () -> Unit,
+    onPickGestureAction: (GestureDirection) -> Unit,
+    onSelectGestureAction: (GestureAction) -> Unit,
+    onChooseGestureInstalledApp: () -> Unit,
+    onPickClockApp: () -> Unit,
+    onPickDateApp: () -> Unit,
+    onClearClockApp: () -> Unit,
+    onClearDateApp: () -> Unit,
     workProfilePaused: Boolean,
     hasWorkProfile: Boolean,
     shortcutsFor: (AppTargetId) -> List<AppShortcutItem>,
@@ -968,26 +1258,32 @@ private fun StillAppScaffold(
     onStartPickWidget: () -> Unit,
     onCancelPickWidget: () -> Unit,
     onSelectWidgetProvider: (WidgetProviderOption) -> Unit,
-    onCamera: () -> Unit,
-    onPhone: () -> Unit,
-    onPickSlot: (GestureActionSlot) -> Unit,
-    onDisableSlot: (GestureActionSlot) -> Unit,
-    onSelectTargetForSlot: (GestureActionSlot, AppTargetId) -> Unit,
     onEnterEditHome: () -> Unit,
     onExitEditHome: () -> Unit,
     onAddFavorite: (AppTargetId) -> Unit,
     onRemoveFavorite: (AppTargetId) -> Unit,
     onMoveFavorite: (AppTargetId, Boolean) -> Unit,
+    onRenameFavorite: (AppTargetId) -> Unit,
+    onHideFavorite: (AppTargetId) -> Unit,
+    onUninstallFavorite: (AppTargetId) -> Unit,
+    onUninstall: (AppTargetId) -> Unit,
     onReplaceFavorite: (AppTargetId) -> Unit,
-    onSelectReplacementFavorite: (AppTargetId) -> Unit,
+    onAddFavoritePick: () -> Unit,
+    onSelectPickerTarget: (AppTargetId) -> Unit,
     onSetAlias: (AppTargetId, String?) -> Unit,
     onSetHideMode: (AppTargetId, HideMode) -> Unit,
     onOpenAppInfo: (AppTargetId) -> Unit,
     onSetLayoutLocked: (Boolean) -> Unit,
+    onToggleLayoutLock: () -> Unit,
+    onDismissEmptyHint: () -> Unit,
     onSetShowClock: (Boolean) -> Unit,
     onSetShowDate: (Boolean) -> Unit,
+    onSetClockTapEnabled: (Boolean) -> Unit,
+    onSetDateTapEnabled: (Boolean) -> Unit,
     onSetFocusSearch: (Boolean) -> Unit,
     onSetTaskPreviewLimit: (Int) -> Unit,
+    onSetHaptic: (Boolean) -> Unit,
+    onSetVerticalPlacement: (HomeVerticalPlacement) -> Unit,
     onAddTaskFromHome: () -> Unit,
     onAddTaskFromTasks: () -> Unit,
     onOpenTaskFromHome: (TaskEntity) -> Unit,
@@ -1020,7 +1316,6 @@ private fun StillAppScaffold(
     onDeleteImportedFont: (String) -> Unit,
     onExportAppearancePreset: () -> Unit,
     onImportAppearancePreset: () -> Unit,
-    replacingFavorite: Boolean,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val favorites = remember(launcherPrefs, catalog) {
@@ -1032,6 +1327,8 @@ private fun StillAppScaffold(
     val searchCatalog = remember(catalog, launcherPrefs.hideModes) {
         AppVisibility.filterSearch(catalog, launcherPrefs.hideModes)
     }
+    val hideTopBar =
+        (surface == StillSurface.Home && !editingHome) || surface == StillSurface.Onboarding
 
     BackHandler(enabled = surface != StillSurface.Home || editingHome) {
         when {
@@ -1047,66 +1344,70 @@ private fun StillAppScaffold(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        when (surface) {
-                            StillSurface.Home -> if (editingHome) {
-                                stringResource(R.string.edit_home)
-                            } else {
-                                stringResource(R.string.home_title)
-                            }
-                            StillSurface.Apps -> stringResource(R.string.apps_title)
-                            StillSurface.Settings -> stringResource(R.string.settings_title)
-                            StillSurface.Appearance -> stringResource(R.string.appearance_title)
-                            StillSurface.HiddenApps -> stringResource(R.string.hidden_apps)
-                            StillSurface.Widgets -> if (pickingWidgetProvider) {
-                                stringResource(R.string.widget_add)
-                            } else {
-                                stringResource(R.string.widgets_title)
-                            }
-                            StillSurface.Tasks -> stringResource(R.string.tasks_title)
-                            StillSurface.AddTask -> stringResource(R.string.add_task)
-                            StillSurface.EditTask -> stringResource(R.string.edit_task)
-                            StillSurface.Picker -> when {
-                                replacingFavorite -> stringResource(R.string.recover_target)
-                                pickingSlot == GestureActionSlot.Camera ->
-                                    stringResource(R.string.pick_camera_target)
-                                pickingSlot == GestureActionSlot.Phone ->
-                                    stringResource(R.string.pick_phone_target)
-                                else -> stringResource(R.string.choose_app)
-                            }
-                        },
-                    )
-                },
-                navigationIcon = {
-                    if (surface != StillSurface.Home || editingHome) {
-                        TextButton(onClick = {
-                            keyboard?.hide()
-                            if (editingHome && surface == StillSurface.Home) {
-                                onExitEditHome()
-                            } else {
-                                onBack()
-                            }
-                        }) {
-                            Text(
-                                if (editingHome && surface == StillSurface.Home) {
-                                    stringResource(R.string.done)
+            if (hideTopBar) {
+                // Home (non-edit) and Onboarding intentionally have no top bar.
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            when (surface) {
+                                StillSurface.Home -> stringResource(R.string.edit_home)
+                                StillSurface.Apps -> stringResource(R.string.apps_title)
+                                StillSurface.Settings -> stringResource(R.string.settings_title)
+                                StillSurface.Appearance -> stringResource(R.string.appearance_title)
+                                StillSurface.HiddenApps -> stringResource(R.string.hidden_apps)
+                                StillSurface.Widgets -> if (pickingWidgetProvider) {
+                                    stringResource(R.string.widget_add)
                                 } else {
-                                    stringResource(R.string.back)
-                                },
-                            )
+                                    stringResource(R.string.widgets_title)
+                                }
+                                StillSurface.Gestures -> stringResource(R.string.gestures_title)
+                                StillSurface.GestureActionPicker ->
+                                    stringResource(R.string.gesture_choose_app)
+                                StillSurface.Onboarding -> ""
+                                StillSurface.Tasks -> stringResource(R.string.tasks_title)
+                                StillSurface.AddTask -> stringResource(R.string.add_task)
+                                StillSurface.EditTask -> stringResource(R.string.edit_task)
+                                StillSurface.Picker -> when (pickerPurpose) {
+                                    PICKER_FAVORITE_REPLACE ->
+                                        stringResource(R.string.recover_target)
+                                    PICKER_CLOCK_APP -> stringResource(R.string.clock_change_app)
+                                    PICKER_DATE_APP -> stringResource(R.string.date_change_app)
+                                    PICKER_GESTURE_APP -> stringResource(R.string.gesture_action_app)
+                                    else -> stringResource(R.string.choose_app)
+                                }
+                            },
+                        )
+                    },
+                    navigationIcon = {
+                        if (surface != StillSurface.Home || editingHome) {
+                            TextButton(onClick = {
+                                keyboard?.hide()
+                                if (editingHome && surface == StillSurface.Home) {
+                                    onExitEditHome()
+                                } else {
+                                    onBack()
+                                }
+                            }) {
+                                Text(
+                                    if (editingHome && surface == StillSurface.Home) {
+                                        stringResource(R.string.done)
+                                    } else {
+                                        stringResource(R.string.back)
+                                    },
+                                )
+                            }
                         }
-                    }
-                },
-                actions = {
-                    if (surface == StillSurface.Apps) {
-                        TextButton(onClick = onOpenSettings) {
-                            Text(stringResource(R.string.open_settings))
+                    },
+                    actions = {
+                        if (surface == StillSurface.Apps) {
+                            TextButton(onClick = onOpenSettings) {
+                                Text(stringResource(R.string.open_settings))
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -1114,34 +1415,47 @@ private fun StillAppScaffold(
         when (surface) {
             StillSurface.Home -> HomeSurface(
                 modifier = contentModifier,
-                defaultHomeHeld = defaultHomeHeld,
                 favorites = favorites,
                 launcherPrefs = launcherPrefs,
                 editingHome = editingHome,
                 is24Hour = is24Hour,
                 taskPreview = taskPreview,
-                taskPreviewLimit = launcherPrefs.taskPreviewLimit,
+                widgetPlacements = widgetPlacements,
+                widgetHost = widgetHost,
+                onGestureUp = { onGesture(GestureDirection.Up) },
+                onGestureDown = { onGesture(GestureDirection.Down) },
+                onGestureLeft = { onGesture(GestureDirection.Left) },
+                onGestureRight = { onGesture(GestureDirection.Right) },
+                onTapClock = onTapClock,
+                onTapDate = onTapDate,
+                onChangeClockApp = onPickClockApp,
+                onDisableClockTap = { onSetClockTapEnabled(false) },
+                onChangeDateApp = onPickDateApp,
+                onDisableDateTap = { onSetDateTapEnabled(false) },
+                onLaunchFavorite = onLaunchTarget,
+                onRemoveFavorite = onRemoveFavorite,
+                onRenameFavorite = onRenameFavorite,
+                onFavoriteAppInfo = onOpenAppInfo,
+                onHideFavorite = onHideFavorite,
+                onUninstallFavorite = onUninstallFavorite,
+                onMoveFavorite = onMoveFavorite,
                 onOpenApps = onOpenApps,
                 onOpenSettings = onOpenSettings,
+                onOpenAppearance = onOpenAppearance,
+                onOpenGestures = onOpenGestures,
                 onOpenTasks = onOpenTasks,
                 onAddTask = onAddTaskFromHome,
                 onTogglePreviewTaskComplete = onTogglePreviewTaskComplete,
                 onOpenTask = onOpenTaskFromHome,
-                onCamera = onCamera,
-                onPhone = onPhone,
-                onRequestDefaultHome = onRequestDefaultHome,
-                onLaunchFavorite = onLaunchTarget,
-                onEnterEditHome = onEnterEditHome,
-                onExitEditHome = onExitEditHome,
-                onRemoveFavorite = onRemoveFavorite,
-                onMoveFavorite = onMoveFavorite,
-                onReplaceFavorite = onReplaceFavorite,
-                widgetPlacements = widgetPlacements,
-                widgetHost = widgetHost,
-                onRemoveWidget = onRemoveWidget,
-                onUpdateWidget = onUpdateWidget,
+                onAddFavorite = onAddFavoritePick,
                 onAddWidget = onAddWidget,
                 onOpenWidgets = onOpenWidgets,
+                onToggleLayoutLock = onToggleLayoutLock,
+                onDismissEmptyHint = onDismissEmptyHint,
+                onRemoveWidget = onRemoveWidget,
+                onUpdateWidget = onUpdateWidget,
+                onEnterEditHome = onEnterEditHome,
+                onExitEditHome = onExitEditHome,
             )
             StillSurface.Apps -> AppsSurface(
                 modifier = contentModifier,
@@ -1161,31 +1475,53 @@ private fun StillAppScaffold(
                 onSetAlias = onSetAlias,
                 onSetHideMode = onSetHideMode,
                 onOpenAppInfo = onOpenAppInfo,
+                onUninstall = onUninstall,
             )
             StillSurface.Settings -> SettingsSurface(
                 modifier = contentModifier,
                 defaultHomeHeld = defaultHomeHeld,
-                gestures = gestures,
-                catalog = catalog,
                 launcherPrefs = launcherPrefs,
+                versionName = versionName,
                 onRequestDefaultHome = onRequestDefaultHome,
                 onOpenHomeSettings = onOpenHomeSettings,
-                onPickSlot = onPickSlot,
-                onDisableSlot = onDisableSlot,
-                onOpenConfigured = { slot ->
-                    when (slot) {
-                        GestureActionSlot.Camera -> onCamera()
-                        GestureActionSlot.Phone -> onPhone()
-                    }
-                },
-                onOpenHiddenApps = onOpenHiddenApps,
                 onOpenAppearance = onOpenAppearance,
+                onOpenGestures = onOpenGestures,
+                onOpenHiddenApps = onOpenHiddenApps,
                 onOpenWidgets = onOpenWidgets,
+                onOpenTasks = onOpenTasks,
+                onOpenOnboarding = onOpenOnboarding,
                 onSetLayoutLocked = onSetLayoutLocked,
                 onSetShowClock = onSetShowClock,
                 onSetShowDate = onSetShowDate,
+                onSetClockTapEnabled = onSetClockTapEnabled,
+                onSetDateTapEnabled = onSetDateTapEnabled,
+                onPickClockApp = onPickClockApp,
+                onPickDateApp = onPickDateApp,
+                onClearClockApp = onClearClockApp,
+                onClearDateApp = onClearDateApp,
                 onSetFocusSearch = onSetFocusSearch,
                 onSetTaskPreviewLimit = onSetTaskPreviewLimit,
+                onSetHaptic = onSetHaptic,
+                onSetVerticalPlacement = onSetVerticalPlacement,
+            )
+            StillSurface.Gestures -> GesturesSurface(
+                modifier = contentModifier,
+                gestures = gestures,
+                actionLabel = { action ->
+                    gestureActionLabel(action) { id ->
+                        catalog.find { it.id == id }?.displayLabel
+                    }
+                },
+                onPickAction = onPickGestureAction,
+            )
+            StillSurface.GestureActionPicker -> GestureActionPickerSurface(
+                modifier = contentModifier,
+                onSelect = onSelectGestureAction,
+                onChooseInstalledApp = onChooseGestureInstalledApp,
+            )
+            StillSurface.Onboarding -> OnboardingSurface(
+                modifier = contentModifier,
+                onFinished = onFinishOnboarding,
             )
             StillSurface.Widgets -> WidgetsSurface(
                 modifier = contentModifier,
@@ -1224,14 +1560,7 @@ private fun StillAppScaffold(
             StillSurface.Picker -> PickerSurface(
                 modifier = contentModifier,
                 catalog = browseCatalog,
-                onSelect = { id ->
-                    val slot = pickingSlot
-                    if (replacingFavorite) {
-                        onSelectReplacementFavorite(id)
-                    } else if (slot != null) {
-                        onSelectTargetForSlot(slot, id)
-                    }
-                },
+                onSelect = onSelectPickerTarget,
             )
             StillSurface.Tasks -> TasksSurface(
                 modifier = contentModifier,

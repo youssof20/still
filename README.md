@@ -1,35 +1,28 @@
 # still
 
-An Android launcher with text favorites, local tasks, optional Android widgets, and local appearance controls. No account or network connection is required.
+An Android launcher with text favorites, local search, optional tasks and widgets, and local appearance controls. No account or network connection is required.
 
 ## Shipped
 
-- Home with ordered favorites (no fixed count), optional clock/date, layout lock, task preview, and an optional widget shelf
-- Real third-party Android widgets via `AppWidgetHost` (bind, configure, remove; full or compatible half-width; start/center/end/stretch alignment)
-- Local tasks: add, edit, complete, Done, Trash (30-day retention), manual reorder, draft recovery
-- Task export as versioned JSON or Markdown; JSON import with replace or merge (failed import leaves data unchanged)
-- Appearance: light/dark/black/system modes, neutral/dynamic/custom colors, text scale/weight/spacing/alignment
-- Local TTF/OTF font import into app-private storage; Settings stays on the system font if a custom font fails
-- Appearance draft with Apply/Cancel/Reset; shareable theme preset (appearance only; imported font files excluded)
-- Optional wallpaper scrim (OEM wallpaper visibility unverified)
-- Apps list with search that never auto-launches while typing; published/pinned shortcuts when the OS exposes them
-- Work-profile quiet-mode notice; profile badge on work/personal duplicates
-- Aliases that keep the original label searchable
-- Hide from app list, or hide from list and search, with a Settings recovery screen
-- Default Home role request and system Home settings access
-- Camera and Phone actions (buttons + left/right swipe on Home); swipe up from the bottom strip opens Apps
-- Profile-aware app identity (component + user serial)
+- Quiet Home by default: optional clock/date, favorites, optional task preview, optional widgets — no permanent Apps/Camera/Phone/Tasks buttons
+- Swipe up for apps; swipe down for the notification shade where supported; swipe left/right for configurable actions (defaults: Camera / Phone)
+- Tap clock or date to open Clock/Calendar; long-press to change or disable those actions
+- Long-press empty Home for Add favorite, widgets, Tasks, Appearance, Gestures, Settings, layout lock
+- Long-press favorites and apps for contextual actions (rename, hide, uninstall request, shortcuts)
+- Local tasks with a subtle Home preview (off by default)
+- Appearance: black default, light/dark/system, presets (Still, OLED, Paper, Terminal, Mono, Retro LCD, Classic Phone, Material), fonts, local TTF/OTF import
+- Short skippable onboarding; Settings → Help → Quick guide to reopen
+- Settings grouped into Home, Appearance, Gestures, Apps, Tasks, Widgets, Privacy, Help, About
+- Profile-aware apps, work-profile quiet-mode notice, Private Space labeled unsupported
 - No `INTERNET` permission
 
 ## Not shipped yet
 
-Private Space UI (explicitly unsupported until lifecycle and lock-state acceptance tests pass).
+Private Space UI (lifecycle and lock-state acceptance tests still required).
 
 ## Build
 
 Requires JDK 17+ and an Android SDK with platform 37.0 and build-tools 36.0.0.
-
-Toolchain: AGP 9.4.0, Gradle 9.6.0, Kotlin 2.2.10 (AGP built-in Kotlin), Compose BOM 2026.08.00, Room 2.8.5.
 
 ```text
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assertNoInternetPermission
@@ -39,27 +32,18 @@ Windows: `gradlew.bat` with the same tasks. Set `sdk.dir` in `local.properties` 
 
 ## Permissions and privacy
 
-Core launching, tasks, appearance, and the widget host do not require Internet, accessibility, notification, contacts, location, or usage access. Data stays on device. OS backup of launcher data is disabled in the manifest rules for this stage.
+Core launching, tasks, appearance, and the widget host do not require Internet, accessibility, notification, contacts, location, or usage access. Expanding the notification shade uses a supported system API when available and fails quietly otherwise. Data stays on device.
 
-Widget providers may use their own network access; this launcher does not control that. Widget instance IDs and bind grants are not portable across devices after backup.
-
-Theme presets contain appearance settings only. Imported font files are not redistributed in presets.
-
-## Dependencies (license)
-
-Room and Robolectric test support are Apache License 2.0. Room is used only for local task storage; Robolectric only for unit tests.
+Widget providers may use their own network access. Widget instance IDs are not portable across devices after backup.
 
 ## Known limits
 
-- Device and OEM Home gesture behavior is unverified on physical hardware.
+- Device and OEM Home gesture and shade behavior is unverified on every OEM.
 - Package visibility for the app list is incomplete until this app holds the Home role on Android 11+.
 - Hiding apps is launcher UX only, not Android security.
-- Wallpaper scrim depends on the window showing the system wallpaper; behavior varies by OEM and is unverified here.
-- Task database is at schema version 1; upgrades will use explicit Room migrations (no destructive fallback).
-- Contrast warnings are a simple luminance check, not a claimed accessibility standard certification.
-- Shortcut lists can be empty when still is not the default Home app or the OEM hides shortcuts.
-- Private Space is labeled unsupported; locked private-space apps are not listed, searched, or exported.
-- Hosted widgets are not claimed to be fully sandboxed against every third-party RemoteViews failure.
+- Shortcut lists can be empty when still is not the default Home app.
+- Private Space remains unsupported.
+- Lock-screen gesture requires device-admin capabilities the app does not request; the action reports unavailable when lock fails.
 
 ## License
 

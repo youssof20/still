@@ -21,50 +21,58 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import app.still.R
 import app.still.launcher.AppTarget
 import app.still.launcher.AppTargetId
 import app.still.launcher.HideMode
-import app.still.prefs.GestureActionSlot
-import app.still.prefs.GesturePreferences
-import app.still.prefs.GestureTargetPreference
+import app.still.prefs.HomeVerticalPlacement
 import app.still.prefs.LauncherPreferences
+import app.still.ui.StillSpacing
 
 @Composable
 fun SettingsSurface(
     modifier: Modifier = Modifier,
     defaultHomeHeld: Boolean,
-    gestures: GesturePreferences,
-    catalog: List<AppTarget>,
     launcherPrefs: LauncherPreferences,
+    versionName: String,
     onRequestDefaultHome: () -> Unit,
     onOpenHomeSettings: () -> Unit,
-    onPickSlot: (GestureActionSlot) -> Unit,
-    onDisableSlot: (GestureActionSlot) -> Unit,
-    onOpenConfigured: (GestureActionSlot) -> Unit,
-    onOpenHiddenApps: () -> Unit,
     onOpenAppearance: () -> Unit,
-    onOpenWidgets: () -> Unit = {},
+    onOpenGestures: () -> Unit,
+    onOpenHiddenApps: () -> Unit,
+    onOpenWidgets: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onOpenOnboarding: () -> Unit,
     onSetLayoutLocked: (Boolean) -> Unit,
     onSetShowClock: (Boolean) -> Unit,
     onSetShowDate: (Boolean) -> Unit,
+    onSetClockTapEnabled: (Boolean) -> Unit,
+    onSetDateTapEnabled: (Boolean) -> Unit,
+    onPickClockApp: () -> Unit,
+    onPickDateApp: () -> Unit,
+    onClearClockApp: () -> Unit,
+    onClearDateApp: () -> Unit,
     onSetFocusSearch: (Boolean) -> Unit,
     onSetTaskPreviewLimit: (Int) -> Unit,
+    onSetHaptic: (Boolean) -> Unit,
+    onSetVerticalPlacement: (HomeVerticalPlacement) -> Unit,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(StillSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(StillSpacing.md),
     ) {
+        SectionTitle(stringResource(R.string.settings_section_home))
         Text(
             text = if (defaultHomeHeld) {
                 stringResource(R.string.default_home_active)
             } else {
                 stringResource(R.string.default_home_inactive)
             },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Button(onClick = onRequestDefaultHome) {
             Text(stringResource(R.string.set_as_default_home))
@@ -72,54 +80,90 @@ fun SettingsSurface(
         OutlinedButton(onClick = onOpenHomeSettings) {
             Text(stringResource(R.string.change_default_home))
         }
-
-        OutlinedButton(onClick = onOpenAppearance) {
-            Text(stringResource(R.string.open_appearance))
-        }
-
-        OutlinedButton(onClick = onOpenWidgets) {
-            Text(stringResource(R.string.open_widgets))
-        }
-
-        Text(stringResource(R.string.private_space_title), style = MaterialTheme.typography.titleMedium)
-        Text(
-            stringResource(R.string.private_space_unsupported),
-            style = MaterialTheme.typography.bodySmall,
+        SettingSwitch(
+            title = stringResource(R.string.show_clock),
+            checked = launcherPrefs.showClock,
+            onCheckedChange = onSetShowClock,
         )
-
-        Text(stringResource(R.string.hidden_apps), style = MaterialTheme.typography.titleMedium)
-        Text(stringResource(R.string.hidden_apps_explainer), style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = onOpenHiddenApps) {
-            Text(stringResource(R.string.hidden_apps))
+        SettingSwitch(
+            title = stringResource(R.string.clock_tap),
+            checked = launcherPrefs.clockTapEnabled,
+            onCheckedChange = onSetClockTapEnabled,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(StillSpacing.xs)) {
+            OutlinedButton(onClick = onPickClockApp) {
+                Text(stringResource(R.string.clock_change_app))
+            }
+            TextButton(onClick = onClearClockApp) {
+                Text(stringResource(R.string.use_system_default))
+            }
         }
-
+        SettingSwitch(
+            title = stringResource(R.string.show_date),
+            checked = launcherPrefs.showDate,
+            onCheckedChange = onSetShowDate,
+        )
+        SettingSwitch(
+            title = stringResource(R.string.date_tap),
+            checked = launcherPrefs.dateTapEnabled,
+            onCheckedChange = onSetDateTapEnabled,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(StillSpacing.xs)) {
+            OutlinedButton(onClick = onPickDateApp) {
+                Text(stringResource(R.string.date_change_app))
+            }
+            TextButton(onClick = onClearDateApp) {
+                Text(stringResource(R.string.use_system_default))
+            }
+        }
         SettingSwitch(
             title = stringResource(R.string.layout_lock),
             summary = stringResource(R.string.layout_lock_summary),
             checked = launcherPrefs.layoutLocked,
             onCheckedChange = onSetLayoutLocked,
         )
+        Text(stringResource(R.string.home_placement), style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(StillSpacing.xs)) {
+            OutlinedButton(onClick = { onSetVerticalPlacement(HomeVerticalPlacement.Top) }) {
+                Text(stringResource(R.string.placement_top))
+            }
+            OutlinedButton(onClick = { onSetVerticalPlacement(HomeVerticalPlacement.Center) }) {
+                Text(stringResource(R.string.placement_center))
+            }
+            OutlinedButton(onClick = { onSetVerticalPlacement(HomeVerticalPlacement.Bottom) }) {
+                Text(stringResource(R.string.placement_bottom))
+            }
+        }
         SettingSwitch(
-            title = stringResource(R.string.show_clock),
-            summary = null,
-            checked = launcherPrefs.showClock,
-            onCheckedChange = onSetShowClock,
+            title = stringResource(R.string.haptic_feedback),
+            checked = launcherPrefs.hapticFeedback,
+            onCheckedChange = onSetHaptic,
         )
-        SettingSwitch(
-            title = stringResource(R.string.show_date),
-            summary = null,
-            checked = launcherPrefs.showDate,
-            onCheckedChange = onSetShowDate,
-        )
+
+        SectionTitle(stringResource(R.string.settings_section_appearance))
+        OutlinedButton(onClick = onOpenAppearance) {
+            Text(stringResource(R.string.open_appearance))
+        }
+
+        SectionTitle(stringResource(R.string.settings_section_gestures))
+        OutlinedButton(onClick = onOpenGestures) {
+            Text(stringResource(R.string.gestures_title))
+        }
+
+        SectionTitle(stringResource(R.string.settings_section_apps))
         SettingSwitch(
             title = stringResource(R.string.focus_search),
-            summary = null,
             checked = launcherPrefs.focusSearchOnOpenApps,
             onCheckedChange = onSetFocusSearch,
         )
+        Text(stringResource(R.string.hidden_apps_explainer), style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onOpenHiddenApps) {
+            Text(stringResource(R.string.hidden_apps))
+        }
 
+        SectionTitle(stringResource(R.string.settings_section_tasks))
         Text(stringResource(R.string.task_preview), style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(StillSpacing.xs)) {
             OutlinedButton(onClick = { onSetTaskPreviewLimit(0) }) {
                 Text(stringResource(R.string.task_preview_off))
             }
@@ -130,26 +174,37 @@ fun SettingsSurface(
                 Text(stringResource(R.string.task_preview_five))
             }
         }
+        OutlinedButton(onClick = onOpenTasks) {
+            Text(stringResource(R.string.open_tasks))
+        }
 
-        GestureSlotRow(
-            title = stringResource(R.string.camera_action),
-            preference = gestures.camera,
-            catalog = catalog,
-            onChoose = { onPickSlot(GestureActionSlot.Camera) },
-            onDisable = { onDisableSlot(GestureActionSlot.Camera) },
-            onOpen = { onOpenConfigured(GestureActionSlot.Camera) },
-        )
-        GestureSlotRow(
-            title = stringResource(R.string.phone_action),
-            preference = gestures.phone,
-            catalog = catalog,
-            onChoose = { onPickSlot(GestureActionSlot.Phone) },
-            onDisable = { onDisableSlot(GestureActionSlot.Phone) },
-            onOpen = { onOpenConfigured(GestureActionSlot.Phone) },
-        )
+        SectionTitle(stringResource(R.string.settings_section_widgets))
+        OutlinedButton(onClick = onOpenWidgets) {
+            Text(stringResource(R.string.open_widgets))
+        }
 
-        Text(stringResource(R.string.gesture_note), style = MaterialTheme.typography.bodySmall)
+        SectionTitle(stringResource(R.string.settings_section_privacy))
+        Text(stringResource(R.string.privacy_body), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.privacy_degoogle), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.private_space_unsupported), style = MaterialTheme.typography.bodySmall)
+
+        SectionTitle(stringResource(R.string.settings_section_help))
+        OutlinedButton(onClick = onOpenOnboarding) {
+            Text(stringResource(R.string.quick_guide))
+        }
+
+        SectionTitle(stringResource(R.string.settings_section_about))
+        Text(stringResource(R.string.about_version, versionName))
     }
+}
+
+@Composable
+private fun SectionTitle(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleLarge,
+        modifier = Modifier.padding(top = StillSpacing.xs),
+    )
 }
 
 @Composable
@@ -163,14 +218,14 @@ fun HiddenAppsSurface(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(StillSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(StillSpacing.sm),
     ) {
         Text(stringResource(R.string.hidden_apps_explainer), style = MaterialTheme.typography.bodyMedium)
         if (hidden.isEmpty()) {
             Text(stringResource(R.string.hidden_apps_empty))
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(StillSpacing.xs)) {
                 items(
                     hidden,
                     key = { it.id.flattenedComponent() + "@" + it.id.userSerialNumber },
@@ -204,7 +259,7 @@ fun PickerSurface(
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(StillSpacing.md),
     ) {
         items(
             catalog,
@@ -213,7 +268,7 @@ fun PickerSurface(
             TextButton(
                 onClick = { onSelect(target.id) },
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 12.dp, horizontal = 8.dp),
+                contentPadding = PaddingValues(vertical = StillSpacing.sm, horizontal = StillSpacing.xs),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -229,7 +284,7 @@ fun PickerSurface(
 @Composable
 private fun SettingSwitch(
     title: String,
-    summary: String?,
+    summary: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -245,41 +300,5 @@ private fun SettingSwitch(
             }
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun GestureSlotRow(
-    title: String,
-    preference: GestureTargetPreference,
-    catalog: List<AppTarget>,
-    onChoose: () -> Unit,
-    onDisable: () -> Unit,
-    onOpen: () -> Unit,
-) {
-    val summary = when (preference) {
-        GestureTargetPreference.Disabled -> stringResource(R.string.action_disabled)
-        GestureTargetPreference.Unset -> stringResource(R.string.choose_app)
-        is GestureTargetPreference.Target -> {
-            catalog.firstOrNull { it.id == preference.id }?.displayLabel
-                ?: stringResource(R.string.launch_failed_missing)
-        }
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = title, style = MaterialTheme.typography.titleMedium)
-        Text(text = summary, style = MaterialTheme.typography.bodyMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onChoose) {
-                Text(stringResource(R.string.choose_app))
-            }
-            OutlinedButton(onClick = onDisable) {
-                Text(stringResource(R.string.disable_action))
-            }
-            if (preference is GestureTargetPreference.Target) {
-                TextButton(onClick = onOpen) {
-                    Text(title)
-                }
-            }
-        }
     }
 }

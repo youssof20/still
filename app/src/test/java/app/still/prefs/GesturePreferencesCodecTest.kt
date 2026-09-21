@@ -6,24 +6,40 @@ import org.junit.Test
 
 class GesturePreferencesCodecTest {
     @Test
-    fun roundTripTarget() {
+    fun roundTripNamedActions() {
+        listOf(
+            GestureAction.None,
+            GestureAction.Apps,
+            GestureAction.Tasks,
+            GestureAction.Notifications,
+            GestureAction.QuickSettings,
+            GestureAction.Lock,
+            GestureAction.OpenCamera,
+            GestureAction.OpenPhone,
+        ).forEach { action ->
+            val encoded = GesturePreferencesRepository.encode(action)
+            val decoded = GesturePreferencesRepository.decode(encoded, GestureAction.None)
+            assertThat(decoded).isEqualTo(action)
+        }
+    }
+
+    @Test
+    fun roundTripAppAction() {
         val id = AppTargetId("com.android.camera", "com.android.camera.Camera", 0L)
-        val encoded = GesturePreferencesRepository.encode(id)
-        val decoded = GesturePreferencesRepository.decode(encoded)
-        assertThat(decoded).isEqualTo(GestureTargetPreference.Target(id))
+        val action = GestureAction.App(id)
+        val encoded = GesturePreferencesRepository.encode(action)
+        assertThat(GesturePreferencesRepository.decode(encoded, GestureAction.None)).isEqualTo(action)
     }
 
     @Test
-    fun disabledAndUnsetSentinels() {
-        assertThat(GesturePreferencesRepository.decode(null))
-            .isEqualTo(GestureTargetPreference.Unset)
-        assertThat(GesturePreferencesRepository.decode("disabled"))
-            .isEqualTo(GestureTargetPreference.Disabled)
+    fun legacyDisabledBecomesNone() {
+        assertThat(GesturePreferencesRepository.decode("disabled", GestureAction.OpenCamera))
+            .isEqualTo(GestureAction.None)
     }
 
     @Test
-    fun corruptPayloadFallsBackToUnset() {
-        assertThat(GesturePreferencesRepository.decode("not-a-target"))
-            .isEqualTo(GestureTargetPreference.Unset)
+    fun nullUsesDefault() {
+        assertThat(GesturePreferencesRepository.decode(null, GestureAction.Apps))
+            .isEqualTo(GestureAction.Apps)
     }
 }

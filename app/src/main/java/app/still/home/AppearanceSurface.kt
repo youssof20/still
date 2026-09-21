@@ -22,6 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.still.R
+import app.still.appearance.AppearancePresets
 import app.still.appearance.AppearanceSettings
 import app.still.appearance.ColorMode
 import app.still.appearance.FontSource
@@ -29,6 +30,7 @@ import app.still.appearance.HomeAlignment
 import app.still.appearance.ImportedFontInfo
 import app.still.appearance.TextWeightOption
 import app.still.appearance.ThemeMode
+import app.still.ui.StillSpacing
 
 @Composable
 fun AppearanceSurface(
@@ -51,11 +53,27 @@ fun AppearanceSurface(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(StillSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(StillSpacing.md),
     ) {
         Text(stringResource(R.string.appearance_preview_label), style = MaterialTheme.typography.titleMedium)
         AppearancePreviewSample(draft = draft)
+
+        Text(stringResource(R.string.appearance_presets), style = MaterialTheme.typography.titleMedium)
+        AppearancePresets.all().chunked(2).forEach { row ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(StillSpacing.xs),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                row.forEach { (name, preset) ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onDraftChange(preset) },
+                        label = { Text(name) },
+                    )
+                }
+            }
+        }
 
         if (contrastWarning) {
             Text(
@@ -236,13 +254,27 @@ private fun AppearancePreviewSample(draft: AppearanceSettings) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(StillSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(StillSpacing.xxs),
     ) {
-        Text("12:34", style = MaterialTheme.typography.displaySmall, textAlign = align, modifier = Modifier.fillMaxWidth())
-        Text("Messages — long label sample", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
-        Text("Buy milk · メモ · غداً", style = MaterialTheme.typography.titleMedium, textAlign = align, modifier = Modifier.fillMaxWidth())
-        Text("Punctuation: A, B; C — “quote” (ok)?", style = MaterialTheme.typography.bodyMedium, textAlign = align, modifier = Modifier.fillMaxWidth())
+        Text("12:48", style = MaterialTheme.typography.displaySmall, textAlign = align, modifier = Modifier.fillMaxWidth())
+        Text(
+            "Sunday, 21 September",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = align,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("Phone", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
+        Text("Messages", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
+        Text("Camera", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
+        Text("Music", style = MaterialTheme.typography.headlineSmall, textAlign = align, modifier = Modifier.fillMaxWidth())
+        Text(
+            "○ Buy groceries",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = align,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

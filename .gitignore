@@ -38,3 +38,7 @@ agent-transcripts/
 *.aab
 *.dex
 output.json
+
+# Local reference only — never ship
+example/
+

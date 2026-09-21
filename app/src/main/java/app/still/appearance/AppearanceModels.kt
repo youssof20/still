@@ -5,10 +5,10 @@ package app.still.appearance
  * imported fonts are referenced by stable file id under app-private storage.
  */
 data class AppearanceSettings(
-    val themeMode: ThemeMode = ThemeMode.Light,
+    val themeMode: ThemeMode = ThemeMode.Black,
     val colorMode: ColorMode = ColorMode.Neutral,
-    val customAccentArgb: Int = DEFAULT_ACCENT,
-    val customBackgroundArgb: Int = DEFAULT_BACKGROUND_LIGHT,
+    val customAccentArgb: Int = DEFAULT_ACCENT_DARK,
+    val customBackgroundArgb: Int = DEFAULT_BACKGROUND_BLACK,
     val fontSource: FontSource = FontSource.System,
     val importedFontId: String? = null,
     val homeTextScale: Float = 1.0f,
@@ -20,6 +20,7 @@ data class AppearanceSettings(
 ) {
     companion object {
         const val DEFAULT_ACCENT = 0xFF1B1B1B.toInt()
+        const val DEFAULT_ACCENT_DARK = 0xFFE8E8E8.toInt()
         const val DEFAULT_BACKGROUND_LIGHT = 0xFFFAFAFA.toInt()
         const val DEFAULT_BACKGROUND_DARK = 0xFF121212.toInt()
         const val DEFAULT_BACKGROUND_BLACK = 0xFF000000.toInt()

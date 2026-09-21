@@ -23,10 +23,10 @@ class AppearancePreferencesRepository(
 
     val settings: Flow<AppearanceSettings> = dataStore.data.map { prefs ->
         AppearanceSettings(
-            themeMode = enumOrDefault(prefs[THEME_MODE], ThemeMode.Light),
+            themeMode = enumOrDefault(prefs[THEME_MODE], ThemeMode.Black),
             colorMode = enumOrDefault(prefs[COLOR_MODE], ColorMode.Neutral),
-            customAccentArgb = prefs[ACCENT] ?: AppearanceSettings.DEFAULT_ACCENT,
-            customBackgroundArgb = prefs[BACKGROUND] ?: AppearanceSettings.DEFAULT_BACKGROUND_LIGHT,
+            customAccentArgb = prefs[ACCENT] ?: AppearanceSettings.DEFAULT_ACCENT_DARK,
+            customBackgroundArgb = prefs[BACKGROUND] ?: AppearanceSettings.DEFAULT_BACKGROUND_BLACK,
             fontSource = enumOrDefault(prefs[FONT_SOURCE], FontSource.System),
             importedFontId = prefs[IMPORTED_FONT_ID],
             homeTextScale = (prefs[TEXT_SCALE] ?: 1.0f).coerceIn(
