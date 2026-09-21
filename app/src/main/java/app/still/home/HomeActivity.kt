@@ -1,8 +1,11 @@
 package app.still.home
 
 import android.content.Intent
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.text.format.DateFormat
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +41,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import app.still.R
 import app.still.StillApplication
+import app.still.appearance.AppearanceSettings
+import app.still.appearance.FontSource
+import app.still.appearance.ImportedFontInfo
+import app.still.appearance.ThemePresetCodec
+import app.still.appearance.rememberResolvedAppearance
 import app.still.launcher.AppLauncher
 import app.still.launcher.AppTargetId
 import app.still.launcher.AppVisibility
@@ -59,6 +68,7 @@ enum class StillSurface {
     Home,
     Apps,
     Settings,
+    Appearance,
     HiddenApps,
     Picker,
     Tasks,
@@ -89,7 +99,40 @@ class HomeActivity : ComponentActivity() {
         }
 
         setContent {
-            StillTheme {
+            val fontImporter = app.fontImporter
+            val committedAppearance by app.appearancePreferences.settings.collectAsStateWithLifecycle(
+                initialValue = AppearanceSettings(),
+            )
+            var appearanceDraft by remember { mutableStateOf(AppearanceSettings()) }
+            var importedFontsTick by remember { mutableIntStateOf(0) }
+            val importedFonts = remember(importedFontsTick) {
+                fontImporter.listImported()
+            }
+            var surface by rememberSaveable { mutableStateOf(StillSurface.Home) }
+
+            val activeAppearance =
+                if (surface == StillSurface.Appearance) appearanceDraft else committedAppearance
+            val resolved = rememberResolvedAppearance(activeAppearance, fontImporter)
+            val forceSettingsTypography =
+                surface == StillSurface.Settings ||
+                    surface == StillSurface.Appearance ||
+                    surface == StillSurface.HiddenApps
+
+            SideEffect {
+                runCatching {
+                    if (resolved.showWallpaperScrim) {
+                        window.setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT))
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                    }
+                }
+            }
+
+            StillTheme(
+                resolved = resolved,
+                forceSettingsTypography = forceSettingsTypography,
+            ) {
                 val catalogRaw by app.appCatalog.targets.collectAsStateWithLifecycle()
                 val gestures by app.gesturePreferences.preferences.collectAsStateWithLifecycle(
                     initialValue = GesturePreferences(),
@@ -115,7 +158,6 @@ class HomeActivity : ComponentActivity() {
                 }
                 val taskPreview by taskPreviewFlow.collectAsStateWithLifecycle(emptyList())
 
-                var surface by rememberSaveable { mutableStateOf(StillSurface.Home) }
                 var editingHome by rememberSaveable { mutableStateOf(false) }
                 var searchValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
                     mutableStateOf(TextFieldValue())
@@ -157,6 +199,66 @@ class HomeActivity : ComponentActivity() {
                     }
                     pendingImportTasks = parsed.getOrThrow()
                 }
+
+                val fontImportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val result = fontImporter.importFromUri(uri)
+                    if (result.isSuccess) {
+                        val info = result.getOrThrow()
+                        importedFontsTick += 1
+                        appearanceDraft = appearanceDraft.copy(
+                            fontSource = FontSource.Imported,
+                            importedFontId = info.id,
+                        )
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                getString(R.string.appearance_font_imported_ok),
+                            )
+                        }
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                getString(R.string.appearance_font_import_failed),
+                            )
+                        }
+                    }
+                }
+
+                val themePresetImportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val raw = runCatching {
+                        contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    }.getOrNull()
+                    if (raw == null) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                getString(R.string.appearance_preset_failed),
+                            )
+                        }
+                        return@rememberLauncherForActivityResult
+                    }
+                    val parsed = ThemePresetCodec.parse(raw)
+                    if (parsed.isFailure) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                getString(R.string.appearance_preset_failed),
+                            )
+                        }
+                    } else {
+                        appearanceDraft = parsed.getOrThrow()
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                getString(R.string.appearance_preset_imported),
+                            )
+                        }
+                    }
+                }
+
+                val hasUnsavedAppearanceChanges = appearanceDraft != committedAppearance
 
                 fun showLaunchFailure(reason: LaunchFailureReason) {
                     val message = when (reason) {
@@ -242,6 +344,10 @@ class HomeActivity : ComponentActivity() {
                             editTitle = ""
                             surface = if (editFromTasks) StillSurface.Tasks else StillSurface.Home
                             editFromTasks = true
+                        }
+                        StillSurface.Appearance -> {
+                            appearanceDraft = committedAppearance
+                            surface = StillSurface.Settings
                         }
                         StillSurface.Tasks -> resetToCleanHome()
                         else -> resetToCleanHome()
@@ -345,6 +451,10 @@ class HomeActivity : ComponentActivity() {
                         surface = StillSurface.Settings
                     },
                     onOpenHiddenApps = { surface = StillSurface.HiddenApps },
+                    onOpenAppearance = {
+                        appearanceDraft = committedAppearance
+                        surface = StillSurface.Appearance
+                    },
                     onOpenTasks = { surface = StillSurface.Tasks },
                     onBack = { navigateBack() },
                     onRequestDefaultHome = {
@@ -549,6 +659,66 @@ class HomeActivity : ComponentActivity() {
                             }
                         }
                     },
+                    appearanceDraft = appearanceDraft,
+                    importedFonts = importedFonts,
+                    appearanceContrastWarning = resolved.contrastWarning,
+                    appearanceFontLoadFailed = resolved.fontLoadFailed,
+                    hasUnsavedAppearanceChanges = hasUnsavedAppearanceChanges,
+                    onAppearanceDraftChange = { appearanceDraft = it },
+                    onApplyAppearance = {
+                        scope.launch {
+                            app.appearancePreferences.commit(appearanceDraft)
+                            surface = StillSurface.Settings
+                        }
+                    },
+                    onCancelAppearance = {
+                        appearanceDraft = committedAppearance
+                        surface = StillSurface.Settings
+                    },
+                    onResetAppearance = {
+                        appearanceDraft = AppearanceSettings()
+                    },
+                    onImportFont = {
+                        fontImportLauncher.launch(
+                            arrayOf("font/*", "application/octet-stream"),
+                        )
+                    },
+                    onDeleteImportedFont = { id ->
+                        fontImporter.delete(id)
+                        importedFontsTick += 1
+                        if (appearanceDraft.fontSource == FontSource.Imported &&
+                            appearanceDraft.importedFontId == id
+                        ) {
+                            appearanceDraft = appearanceDraft.copy(
+                                fontSource = FontSource.System,
+                                importedFontId = null,
+                            )
+                        }
+                        if (committedAppearance.fontSource == FontSource.Imported &&
+                            committedAppearance.importedFontId == id
+                        ) {
+                            scope.launch {
+                                app.appearancePreferences.commit(
+                                    committedAppearance.copy(
+                                        fontSource = FontSource.System,
+                                        importedFontId = null,
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                    onExportAppearancePreset = {
+                        shareText(
+                            ThemePresetCodec.toJson(appearanceDraft),
+                            "application/json",
+                            getString(R.string.appearance_export_preset),
+                        )
+                    },
+                    onImportAppearancePreset = {
+                        themePresetImportLauncher.launch(
+                            arrayOf("application/json", "text/*"),
+                        )
+                    },
                     replacingFavorite = replaceFavoriteId != null,
                 )
             }
@@ -602,6 +772,7 @@ private fun StillAppScaffold(
     onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHiddenApps: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onOpenTasks: () -> Unit,
     onBack: () -> Unit,
     onRequestDefaultHome: () -> Unit,
@@ -646,6 +817,19 @@ private fun StillAppScaffold(
     onEditTitleChange: (String) -> Unit,
     onSaveAddTask: () -> Unit,
     onSaveEditTask: () -> Unit,
+    appearanceDraft: AppearanceSettings,
+    importedFonts: List<ImportedFontInfo>,
+    appearanceContrastWarning: Boolean,
+    appearanceFontLoadFailed: Boolean,
+    hasUnsavedAppearanceChanges: Boolean,
+    onAppearanceDraftChange: (AppearanceSettings) -> Unit,
+    onApplyAppearance: () -> Unit,
+    onCancelAppearance: () -> Unit,
+    onResetAppearance: () -> Unit,
+    onImportFont: () -> Unit,
+    onDeleteImportedFont: (String) -> Unit,
+    onExportAppearancePreset: () -> Unit,
+    onImportAppearancePreset: () -> Unit,
     replacingFavorite: Boolean,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -684,6 +868,7 @@ private fun StillAppScaffold(
                             }
                             StillSurface.Apps -> stringResource(R.string.apps_title)
                             StillSurface.Settings -> stringResource(R.string.settings_title)
+                            StillSurface.Appearance -> stringResource(R.string.appearance_title)
                             StillSurface.HiddenApps -> stringResource(R.string.hidden_apps)
                             StillSurface.Tasks -> stringResource(R.string.tasks_title)
                             StillSurface.AddTask -> stringResource(R.string.add_task)
@@ -789,11 +974,28 @@ private fun StillAppScaffold(
                     }
                 },
                 onOpenHiddenApps = onOpenHiddenApps,
+                onOpenAppearance = onOpenAppearance,
                 onSetLayoutLocked = onSetLayoutLocked,
                 onSetShowClock = onSetShowClock,
                 onSetShowDate = onSetShowDate,
                 onSetFocusSearch = onSetFocusSearch,
                 onSetTaskPreviewLimit = onSetTaskPreviewLimit,
+            )
+            StillSurface.Appearance -> AppearanceSurface(
+                modifier = contentModifier,
+                draft = appearanceDraft,
+                importedFonts = importedFonts,
+                contrastWarning = appearanceContrastWarning,
+                fontLoadFailed = appearanceFontLoadFailed,
+                hasUnsavedChanges = hasUnsavedAppearanceChanges,
+                onDraftChange = onAppearanceDraftChange,
+                onApply = onApplyAppearance,
+                onCancel = onCancelAppearance,
+                onReset = onResetAppearance,
+                onImportFont = onImportFont,
+                onDeleteImportedFont = onDeleteImportedFont,
+                onExportPreset = onExportAppearancePreset,
+                onImportPreset = onImportAppearancePreset,
             )
             StillSurface.HiddenApps -> HiddenAppsSurface(
                 modifier = contentModifier,

@@ -1,6 +1,8 @@
 package app.still
 
 import android.app.Application
+import app.still.appearance.AppearancePreferencesRepository
+import app.still.appearance.FontImporter
 import app.still.launcher.InstalledAppCatalog
 import app.still.prefs.GesturePreferencesRepository
 import app.still.prefs.LauncherPreferencesRepository
@@ -14,6 +16,10 @@ class StillApplication : Application() {
         private set
     lateinit var launcherPreferences: LauncherPreferencesRepository
         private set
+    lateinit var appearancePreferences: AppearancePreferencesRepository
+        private set
+    lateinit var fontImporter: FontImporter
+        private set
     lateinit var taskRepository: TaskRepository
         private set
 
@@ -22,6 +28,8 @@ class StillApplication : Application() {
         appCatalog = InstalledAppCatalog(this)
         gesturePreferences = GesturePreferencesRepository(this)
         launcherPreferences = LauncherPreferencesRepository(this)
+        appearancePreferences = AppearancePreferencesRepository(this)
+        fontImporter = FontImporter(this)
         val db = StillDatabaseProvider.get(this)
         taskRepository = TaskRepository(this, db.taskDao())
     }

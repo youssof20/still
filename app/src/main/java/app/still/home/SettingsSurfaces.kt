@@ -44,6 +44,7 @@ fun SettingsSurface(
     onDisableSlot: (GestureActionSlot) -> Unit,
     onOpenConfigured: (GestureActionSlot) -> Unit,
     onOpenHiddenApps: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onSetLayoutLocked: (Boolean) -> Unit,
     onSetShowClock: (Boolean) -> Unit,
     onSetShowDate: (Boolean) -> Unit,
@@ -69,6 +70,10 @@ fun SettingsSurface(
         }
         OutlinedButton(onClick = onOpenHomeSettings) {
             Text(stringResource(R.string.change_default_home))
+        }
+
+        OutlinedButton(onClick = onOpenAppearance) {
+            Text(stringResource(R.string.open_appearance))
         }
 
         Text(stringResource(R.string.hidden_apps), style = MaterialTheme.typography.titleMedium)

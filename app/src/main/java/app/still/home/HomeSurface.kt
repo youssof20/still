@@ -34,12 +34,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.still.R
+import app.still.appearance.HomeAlignment
 import app.still.launcher.AppTargetId
 import app.still.launcher.FavoriteEntry
 import app.still.prefs.LauncherPreferences
 import app.still.tasks.TaskEntity
+import app.still.ui.LocalHomeAlignment
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -75,6 +78,17 @@ fun HomeSurface(
     var accumulatedHorizontal by remember { mutableStateOf(0f) }
     var showHomeMenu by remember { mutableStateOf(false) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val homeAlignment = LocalHomeAlignment.current
+    val homeTextAlign = when (homeAlignment) {
+        HomeAlignment.Start -> TextAlign.Start
+        HomeAlignment.Center -> TextAlign.Center
+        HomeAlignment.End -> TextAlign.End
+    }
+    val homeContentAlignment = when (homeAlignment) {
+        HomeAlignment.Start -> Alignment.Start
+        HomeAlignment.Center -> Alignment.CenterHorizontally
+        HomeAlignment.End -> Alignment.End
+    }
 
     LaunchedEffect(launcherPrefs.showClock, launcherPrefs.showDate) {
         if (!launcherPrefs.showClock && !launcherPrefs.showDate) return@LaunchedEffect
@@ -118,6 +132,7 @@ fun HomeSurface(
                         onClick = { showHomeMenu = false },
                         onLongClick = { showHomeMenu = true },
                     ),
+                horizontalAlignment = homeContentAlignment,
             ) {
                 if (launcherPrefs.showClock || launcherPrefs.showDate) {
                     ClockBlock(
@@ -125,11 +140,14 @@ fun HomeSurface(
                         showClock = launcherPrefs.showClock,
                         showDate = launcherPrefs.showDate,
                         is24Hour = is24Hour,
+                        textAlign = homeTextAlign,
                     )
                 } else {
                     Text(
                         text = stringResource(R.string.app_name),
                         style = MaterialTheme.typography.headlineLarge,
+                        textAlign = homeTextAlign,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -188,6 +206,8 @@ fun HomeSurface(
                             editingHome = editingHome,
                             canMoveUp = index > 0,
                             canMoveDown = index < favorites.lastIndex,
+                            textAlign = homeTextAlign,
+                            contentAlignment = homeContentAlignment,
                             onLaunch = { onLaunchFavorite(entry.id) },
                             onRemove = { onRemoveFavorite(entry.id) },
                             onMoveUp = { onMoveFavorite(entry.id, true) },
@@ -252,6 +272,7 @@ private fun ClockBlock(
     showClock: Boolean,
     showDate: Boolean,
     is24Hour: Boolean,
+    textAlign: TextAlign,
 ) {
     val date = Date(nowMillis)
     val timeText = if (showClock) {
@@ -264,12 +285,22 @@ private fun ClockBlock(
     } else {
         null
     }
-    Column {
+    Column(modifier = Modifier.fillMaxWidth()) {
         timeText?.let {
-            Text(text = it, style = MaterialTheme.typography.displaySmall)
+            Text(
+                text = it,
+                style = MaterialTheme.typography.displaySmall,
+                textAlign = textAlign,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         dateText?.let {
-            Text(text = it, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = it,
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = textAlign,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -362,6 +393,8 @@ private fun FavoriteRow(
     editingHome: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    textAlign: TextAlign,
+    contentAlignment: Alignment.Horizontal,
     onLaunch: () -> Unit,
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
@@ -381,19 +414,28 @@ private fun FavoriteRow(
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.Start,
+                horizontalAlignment = contentAlignment,
             ) {
-                Text(text = label, style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.headlineSmall,
+                    textAlign = textAlign,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 if (entry.missing) {
                     Text(
                         text = stringResource(R.string.favorite_missing),
                         style = MaterialTheme.typography.bodySmall,
+                        textAlign = textAlign,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
                     entry.target?.profileIndicator?.let {
                         Text(
                             text = stringResource(R.string.profile_badge, it),
                             style = MaterialTheme.typography.bodySmall,
+                            textAlign = textAlign,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }

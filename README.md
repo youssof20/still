@@ -1,12 +1,16 @@
 # still
 
-An Android launcher with text favorites, local app search, and a simple on-device task list. No account or network connection is required.
+An Android launcher with text favorites, local app search, a simple on-device task list, and local appearance controls. No account or network connection is required.
 
 ## Shipped
 
 - Home with ordered favorites (no fixed count), optional clock/date, layout lock, and a small task preview
 - Local tasks: add, edit, complete, Done, Trash (30-day retention), manual reorder, draft recovery
 - Task export as versioned JSON or Markdown; JSON import with replace or merge (failed import leaves data unchanged)
+- Appearance: light/dark/black/system modes, neutral/dynamic/custom colors, text scale/weight/spacing/alignment
+- Local TTF/OTF font import into app-private storage; Settings stays on the system font if a custom font fails
+- Appearance draft with Apply/Cancel/Reset; shareable theme preset (appearance only; imported font files excluded)
+- Optional wallpaper scrim (OEM wallpaper visibility unverified)
 - Apps list with search that never auto-launches while typing
 - Aliases that keep the original label searchable
 - Hide from app list, or hide from list and search, with a Settings recovery screen
@@ -17,7 +21,7 @@ An Android launcher with text favorites, local app search, and a simple on-devic
 
 ## Not shipped yet
 
-Widgets, font import, appearance presets, Private Space UI, and shortcuts completeness.
+Widgets, Private Space UI, and shortcuts completeness.
 
 ## Build
 
@@ -33,7 +37,9 @@ Windows: `gradlew.bat` with the same tasks. Set `sdk.dir` in `local.properties` 
 
 ## Permissions and privacy
 
-Core launching and tasks do not require Internet, accessibility, notification, contacts, location, or usage access. Data stays on device. OS backup of launcher data is disabled in the manifest rules for this stage.
+Core launching, tasks, and appearance do not require Internet, accessibility, notification, contacts, location, or usage access. Data stays on device. OS backup of launcher data is disabled in the manifest rules for this stage.
+
+Theme presets contain appearance settings only. Imported font files are not redistributed in presets.
 
 ## Dependencies (license)
 
@@ -44,7 +50,9 @@ Room and Robolectric test support are Apache License 2.0. Room is used only for 
 - Device and OEM Home gesture behavior is unverified on physical hardware.
 - Package visibility for the app list is incomplete until this app holds the Home role on Android 11+.
 - Hiding apps is launcher UX only, not Android security.
+- Wallpaper scrim depends on the window showing the system wallpaper; behavior varies by OEM and is unverified here.
 - Task database is at schema version 1; upgrades will use explicit Room migrations (no destructive fallback).
+- Contrast warnings are a simple luminance check, not a claimed accessibility standard certification.
 
 ## License
 
