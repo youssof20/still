@@ -47,6 +47,7 @@ import app.still.appearance.ImportedFontInfo
 import app.still.appearance.ThemePresetCodec
 import app.still.appearance.rememberResolvedAppearance
 import app.still.launcher.AppLauncher
+import app.still.launcher.AppShortcutItem
 import app.still.launcher.AppTargetId
 import app.still.launcher.AppVisibility
 import app.still.launcher.CatalogOverlay
@@ -62,6 +63,11 @@ import app.still.tasks.AddTaskResult
 import app.still.tasks.TaskBackup
 import app.still.tasks.TaskEntity
 import app.still.ui.StillTheme
+import app.still.widgets.RememberWidgetHostListening
+import app.still.widgets.StillWidgetHostController
+import app.still.widgets.WidgetBindFlow
+import app.still.widgets.WidgetPlacement
+import app.still.widgets.WidgetProviderOption
 import kotlinx.coroutines.launch
 
 enum class StillSurface {
@@ -70,6 +76,7 @@ enum class StillSurface {
     Settings,
     Appearance,
     HiddenApps,
+    Widgets,
     Picker,
     Tasks,
     AddTask,
@@ -116,7 +123,8 @@ class HomeActivity : ComponentActivity() {
             val forceSettingsTypography =
                 surface == StillSurface.Settings ||
                     surface == StillSurface.Appearance ||
-                    surface == StillSurface.HiddenApps
+                    surface == StillSurface.HiddenApps ||
+                    surface == StillSurface.Widgets
 
             SideEffect {
                 runCatching {
@@ -133,6 +141,8 @@ class HomeActivity : ComponentActivity() {
                 resolved = resolved,
                 forceSettingsTypography = forceSettingsTypography,
             ) {
+                RememberWidgetHostListening(app.widgetHost)
+
                 val catalogRaw by app.appCatalog.targets.collectAsStateWithLifecycle()
                 val gestures by app.gesturePreferences.preferences.collectAsStateWithLifecycle(
                     initialValue = GesturePreferences(),
@@ -145,6 +155,9 @@ class HomeActivity : ComponentActivity() {
                 }
                 val snackbarHostState = remember { SnackbarHostState() }
                 val scope = rememberCoroutineScope()
+                val widgetPlacements by app.widgetPlacements.placements.collectAsStateWithLifecycle(
+                    emptyList(),
+                )
 
                 val activeTasks by app.taskRepository.active.collectAsStateWithLifecycle(
                     emptyList(),
@@ -176,6 +189,16 @@ class HomeActivity : ComponentActivity() {
                 var addFromTasks by rememberSaveable { mutableStateOf(false) }
                 var editFromTasks by rememberSaveable { mutableStateOf(true) }
                 var pendingImportTasks by remember { mutableStateOf<List<TaskEntity>?>(null) }
+                var pickingWidgetProvider by rememberSaveable { mutableStateOf(false) }
+                var pendingWidgetId by rememberSaveable { mutableIntStateOf(0) }
+                var pendingWidgetProvider by rememberSaveable { mutableStateOf<String?>(null) }
+                val widgetProviders = remember(surface) {
+                    if (surface == StillSurface.Widgets) {
+                        app.widgetHost.listProviders()
+                    } else {
+                        emptyList()
+                    }
+                }
 
                 val importLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocument(),
@@ -258,6 +281,104 @@ class HomeActivity : ComponentActivity() {
                     }
                 }
 
+                fun cancelPendingWidget(messageRes: Int) {
+                    if (pendingWidgetId > 0) {
+                        app.widgetHost.deleteId(pendingWidgetId)
+                    }
+                    pendingWidgetId = 0
+                    pendingWidgetProvider = null
+                    scope.launch {
+                        snackbarHostState.showSnackbar(getString(messageRes))
+                    }
+                }
+
+                val widgetStepHandler = remember {
+                    object {
+                        var handle: (WidgetBindFlow.NextStep) -> Unit = {}
+                    }
+                }
+
+                val bindLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult(),
+                ) { result ->
+                    val provider = pendingWidgetProvider
+                    if (provider == null || pendingWidgetId <= 0) {
+                        cancelPendingWidget(R.string.widget_bind_failed)
+                        return@rememberLauncherForActivityResult
+                    }
+                    val step = WidgetBindFlow.afterBindResult(
+                        app.widgetHost,
+                        WidgetBindFlow.Pending(pendingWidgetId, provider),
+                        result.resultCode,
+                    )
+                    when (step) {
+                        is WidgetBindFlow.NextStep.Failed ->
+                            cancelPendingWidget(R.string.widget_bind_cancelled)
+                        else -> widgetStepHandler.handle(step)
+                    }
+                }
+
+                val configureLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult(),
+                ) { result ->
+                    val provider = pendingWidgetProvider
+                    if (provider == null || pendingWidgetId <= 0) {
+                        cancelPendingWidget(R.string.widget_configure_cancelled)
+                        return@rememberLauncherForActivityResult
+                    }
+                    val step = WidgetBindFlow.afterConfigureResult(
+                        WidgetBindFlow.Pending(pendingWidgetId, provider),
+                        result.resultCode,
+                    )
+                    when (step) {
+                        is WidgetBindFlow.NextStep.Failed ->
+                            cancelPendingWidget(R.string.widget_configure_cancelled)
+                        else -> widgetStepHandler.handle(step)
+                    }
+                }
+
+                fun handleWidgetNextStep(step: WidgetBindFlow.NextStep) {
+                    when (step) {
+                        is WidgetBindFlow.NextStep.LaunchBind -> {
+                            bindLauncher.launch(step.intent)
+                        }
+                        is WidgetBindFlow.NextStep.LaunchConfigure -> {
+                            configureLauncher.launch(step.intent)
+                        }
+                        is WidgetBindFlow.NextStep.Complete -> {
+                            scope.launch {
+                                app.widgetPlacements.add(step.placement)
+                                pendingWidgetId = 0
+                                pendingWidgetProvider = null
+                                pickingWidgetProvider = false
+                                surface = StillSurface.Widgets
+                            }
+                        }
+                        is WidgetBindFlow.NextStep.Failed -> {
+                            if (step.releaseId > 0 && step.releaseId != pendingWidgetId) {
+                                app.widgetHost.deleteId(step.releaseId)
+                            }
+                            cancelPendingWidget(R.string.widget_bind_failed)
+                        }
+                    }
+                }
+                widgetStepHandler.handle = ::handleWidgetNextStep
+
+                fun startAddWidget(option: WidgetProviderOption) {
+                    val (pending, step) = WidgetBindFlow.begin(
+                        app.widgetHost,
+                        option.providerFlattened,
+                    )
+                    pendingWidgetId = pending.appWidgetId
+                    pendingWidgetProvider = pending.providerFlattened
+                    handleWidgetNextStep(step)
+                }
+
+                fun removeWidget(id: Int) {
+                    app.widgetHost.deleteId(id)
+                    scope.launch { app.widgetPlacements.remove(id) }
+                }
+
                 val hasUnsavedAppearanceChanges = appearanceDraft != committedAppearance
 
                 fun showLaunchFailure(reason: LaunchFailureReason) {
@@ -328,6 +449,7 @@ class HomeActivity : ComponentActivity() {
                     addTitle = ""
                     addFromTasks = false
                     editFromTasks = true
+                    pickingWidgetProvider = false
                     searchValue = TextFieldValue()
                 }
 
@@ -348,6 +470,13 @@ class HomeActivity : ComponentActivity() {
                         StillSurface.Appearance -> {
                             appearanceDraft = committedAppearance
                             surface = StillSurface.Settings
+                        }
+                        StillSurface.Widgets -> {
+                            if (pickingWidgetProvider) {
+                                pickingWidgetProvider = false
+                            } else {
+                                surface = StillSurface.Settings
+                            }
                         }
                         StillSurface.Tasks -> resetToCleanHome()
                         else -> resetToCleanHome()
@@ -455,6 +584,10 @@ class HomeActivity : ComponentActivity() {
                         appearanceDraft = committedAppearance
                         surface = StillSurface.Appearance
                     },
+                    onOpenWidgets = {
+                        pickingWidgetProvider = false
+                        surface = StillSurface.Widgets
+                    },
                     onOpenTasks = { surface = StillSurface.Tasks },
                     onBack = { navigateBack() },
                     onRequestDefaultHome = {
@@ -464,6 +597,36 @@ class HomeActivity : ComponentActivity() {
                         startActivity(HomeRoleHelper.createHomeSettingsIntent())
                     },
                     onLaunchTarget = { launchTarget(it) },
+                    workProfilePaused = app.appShortcuts.workProfilesPaused(),
+                    hasWorkProfile = app.appShortcuts.hasWorkProfile(),
+                    shortcutsFor = { app.appShortcuts.listShortcuts(it) },
+                    onLaunchShortcut = { item ->
+                        when (app.appShortcuts.startShortcut(item)) {
+                            LaunchResult.Success -> Unit
+                            is LaunchResult.Failed -> {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        getString(R.string.shortcut_failed),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    widgetPlacements = widgetPlacements,
+                    widgetHost = app.widgetHost,
+                    widgetProviders = widgetProviders,
+                    pickingWidgetProvider = pickingWidgetProvider,
+                    onRemoveWidget = { removeWidget(it) },
+                    onUpdateWidget = { placement ->
+                        scope.launch { app.widgetPlacements.update(placement) }
+                    },
+                    onAddWidget = {
+                        pickingWidgetProvider = true
+                        surface = StillSurface.Widgets
+                    },
+                    onStartPickWidget = { pickingWidgetProvider = true },
+                    onCancelPickWidget = { pickingWidgetProvider = false },
+                    onSelectWidgetProvider = { startAddWidget(it) },
                     onCamera = { launchGesture(GestureActionSlot.Camera) },
                     onPhone = { launchGesture(GestureActionSlot.Phone) },
                     onPickSlot = { slot ->
@@ -731,6 +894,18 @@ class HomeActivity : ComponentActivity() {
         homeInvocation += 1
     }
 
+    override fun onStart() {
+        super.onStart()
+        val app = application as StillApplication
+        app.widgetHost.startListening()
+    }
+
+    override fun onStop() {
+        val app = application as StillApplication
+        app.widgetHost.stopListening()
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         defaultHomeHeld = HomeRoleHelper.isDefaultHome(this)
@@ -773,11 +948,26 @@ private fun StillAppScaffold(
     onOpenSettings: () -> Unit,
     onOpenHiddenApps: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onOpenWidgets: () -> Unit,
     onOpenTasks: () -> Unit,
     onBack: () -> Unit,
     onRequestDefaultHome: () -> Unit,
     onOpenHomeSettings: () -> Unit,
     onLaunchTarget: (AppTargetId) -> Unit,
+    workProfilePaused: Boolean,
+    hasWorkProfile: Boolean,
+    shortcutsFor: (AppTargetId) -> List<AppShortcutItem>,
+    onLaunchShortcut: (AppShortcutItem) -> Unit,
+    widgetPlacements: List<WidgetPlacement>,
+    widgetHost: StillWidgetHostController,
+    widgetProviders: List<WidgetProviderOption>,
+    pickingWidgetProvider: Boolean,
+    onRemoveWidget: (Int) -> Unit,
+    onUpdateWidget: (WidgetPlacement) -> Unit,
+    onAddWidget: () -> Unit,
+    onStartPickWidget: () -> Unit,
+    onCancelPickWidget: () -> Unit,
+    onSelectWidgetProvider: (WidgetProviderOption) -> Unit,
     onCamera: () -> Unit,
     onPhone: () -> Unit,
     onPickSlot: (GestureActionSlot) -> Unit,
@@ -870,6 +1060,11 @@ private fun StillAppScaffold(
                             StillSurface.Settings -> stringResource(R.string.settings_title)
                             StillSurface.Appearance -> stringResource(R.string.appearance_title)
                             StillSurface.HiddenApps -> stringResource(R.string.hidden_apps)
+                            StillSurface.Widgets -> if (pickingWidgetProvider) {
+                                stringResource(R.string.widget_add)
+                            } else {
+                                stringResource(R.string.widgets_title)
+                            }
                             StillSurface.Tasks -> stringResource(R.string.tasks_title)
                             StillSurface.AddTask -> stringResource(R.string.add_task)
                             StillSurface.EditTask -> stringResource(R.string.edit_task)
@@ -941,6 +1136,12 @@ private fun StillAppScaffold(
                 onRemoveFavorite = onRemoveFavorite,
                 onMoveFavorite = onMoveFavorite,
                 onReplaceFavorite = onReplaceFavorite,
+                widgetPlacements = widgetPlacements,
+                widgetHost = widgetHost,
+                onRemoveWidget = onRemoveWidget,
+                onUpdateWidget = onUpdateWidget,
+                onAddWidget = onAddWidget,
+                onOpenWidgets = onOpenWidgets,
             )
             StillSurface.Apps -> AppsSurface(
                 modifier = contentModifier,
@@ -949,8 +1150,12 @@ private fun StillAppScaffold(
                 hideModes = launcherPrefs.hideModes,
                 searchValue = searchValue,
                 focusSearch = launcherPrefs.focusSearchOnOpenApps,
+                workProfilePaused = workProfilePaused,
+                hasWorkProfile = hasWorkProfile,
+                shortcutsFor = shortcutsFor,
                 onSearchChange = onSearchChange,
                 onLaunchTarget = onLaunchTarget,
+                onLaunchShortcut = onLaunchShortcut,
                 onAddFavorite = onAddFavorite,
                 onRemoveFavorite = onRemoveFavorite,
                 onSetAlias = onSetAlias,
@@ -975,11 +1180,24 @@ private fun StillAppScaffold(
                 },
                 onOpenHiddenApps = onOpenHiddenApps,
                 onOpenAppearance = onOpenAppearance,
+                onOpenWidgets = onOpenWidgets,
                 onSetLayoutLocked = onSetLayoutLocked,
                 onSetShowClock = onSetShowClock,
                 onSetShowDate = onSetShowDate,
                 onSetFocusSearch = onSetFocusSearch,
                 onSetTaskPreviewLimit = onSetTaskPreviewLimit,
+            )
+            StillSurface.Widgets -> WidgetsSurface(
+                modifier = contentModifier,
+                placements = widgetPlacements,
+                providers = widgetProviders,
+                host = widgetHost,
+                pickingProvider = pickingWidgetProvider,
+                onStartAdd = onStartPickWidget,
+                onCancelPick = onCancelPickWidget,
+                onSelectProvider = onSelectWidgetProvider,
+                onRemove = onRemoveWidget,
+                onUpdate = onUpdateWidget,
             )
             StillSurface.Appearance -> AppearanceSurface(
                 modifier = contentModifier,

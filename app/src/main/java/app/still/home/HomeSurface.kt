@@ -74,6 +74,12 @@ fun HomeSurface(
     onRemoveFavorite: (AppTargetId) -> Unit,
     onMoveFavorite: (AppTargetId, Boolean) -> Unit,
     onReplaceFavorite: (AppTargetId) -> Unit,
+    widgetPlacements: List<app.still.widgets.WidgetPlacement> = emptyList(),
+    widgetHost: app.still.widgets.StillWidgetHostController? = null,
+    onRemoveWidget: (Int) -> Unit = {},
+    onUpdateWidget: (app.still.widgets.WidgetPlacement) -> Unit = {},
+    onAddWidget: () -> Unit = {},
+    onOpenWidgets: () -> Unit = {},
 ) {
     var accumulatedHorizontal by remember { mutableStateOf(0f) }
     var showHomeMenu by remember { mutableStateOf(false) }
@@ -178,6 +184,10 @@ fun HomeSurface(
                         showHomeMenu = false
                         onOpenSettings()
                     },
+                    onWidgets = {
+                        showHomeMenu = false
+                        onOpenWidgets()
+                    },
                     onDismiss = { showHomeMenu = false },
                 )
             }
@@ -216,6 +226,17 @@ fun HomeSurface(
                         )
                     }
                 }
+            }
+
+            if (widgetHost != null) {
+                app.still.widgets.WidgetShelfSection(
+                    placements = widgetPlacements,
+                    host = widgetHost,
+                    editing = editingHome,
+                    onRemove = onRemoveWidget,
+                    onUpdate = onUpdateWidget,
+                    onAddWidget = onAddWidget,
+                )
             }
 
             if (taskPreviewLimit > 0) {
@@ -359,6 +380,7 @@ private fun HomeActionsMenu(
     onEditHome: () -> Unit,
     onExitEdit: () -> Unit,
     onSettings: () -> Unit,
+    onWidgets: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -377,6 +399,9 @@ private fun HomeActionsMenu(
                     },
                 )
             }
+        }
+        TextButton(onClick = onWidgets) {
+            Text(stringResource(R.string.open_widgets))
         }
         TextButton(onClick = onSettings) {
             Text(stringResource(R.string.open_settings))

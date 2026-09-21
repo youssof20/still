@@ -134,4 +134,27 @@
     <string name="appearance_preset_failed">Theme import failed.</string>
     <string name="appearance_font_imported_ok">Font imported.</string>
     <string name="appearance_font_import_failed">Font import failed.</string>
+    <string name="widgets_title">Widgets</string>
+    <string name="open_widgets">Widgets</string>
+    <string name="widgets_empty">No widgets yet. Add one from Settings or Edit home.</string>
+    <string name="widgets_explainer">still hosts real Android app widgets. Widget providers may use their own network access; this launcher does not. Widget instance IDs are not portable across devices after backup.</string>
+    <string name="widgets_no_providers">No widget providers are available on this device.</string>
+    <string name="widget_add">Add widget</string>
+    <string name="widget_remove">Remove widget</string>
+    <string name="widget_broken">This widget is unavailable. The provider may have been uninstalled or failed to load.</string>
+    <string name="widget_span_half">Use half width</string>
+    <string name="widget_span_full">Use full width</string>
+    <string name="widget_alignment">Align: %1$s</string>
+    <string name="widget_provider_meta">%1$s · min %2$d×%3$d dp</string>
+    <string name="widget_needs_configure">Requires configuration</string>
+    <string name="widget_bind_cancelled">Widget binding cancelled.</string>
+    <string name="widget_configure_cancelled">Widget configuration cancelled.</string>
+    <string name="widget_bind_failed">That widget could not be bound. Set still as the default Home app and try again.</string>
+    <string name="shortcuts_title">Shortcuts</string>
+    <string name="shortcuts_none">No published shortcuts for this app.</string>
+    <string name="shortcut_failed">That shortcut could not be opened.</string>
+    <string name="work_profile_paused">Work apps are paused. Resume the work profile in system Settings to launch them.</string>
+    <string name="work_profile_present">Work profile apps use a profile badge next to the label.</string>
+    <string name="private_space_title">Private Space</string>
+    <string name="private_space_unsupported">Private Space is not supported in this version. Locked private-space apps are not listed, searched, or exported here.</string>
 </resources>

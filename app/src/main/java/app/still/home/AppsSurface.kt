@@ -45,8 +45,12 @@ fun AppsSurface(
     hideModes: Map<AppTargetId, HideMode>,
     searchValue: TextFieldValue,
     focusSearch: Boolean,
+    workProfilePaused: Boolean = false,
+    hasWorkProfile: Boolean = false,
+    shortcutsFor: (AppTargetId) -> List<app.still.launcher.AppShortcutItem> = { emptyList() },
     onSearchChange: (TextFieldValue) -> Unit,
     onLaunchTarget: (AppTargetId) -> Unit,
+    onLaunchShortcut: (app.still.launcher.AppShortcutItem) -> Unit = {},
     onAddFavorite: (AppTargetId) -> Unit,
     onRemoveFavorite: (AppTargetId) -> Unit,
     onSetAlias: (AppTargetId, String?) -> Unit,
@@ -73,6 +77,19 @@ fun AppsSurface(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
     ) {
+        if (workProfilePaused) {
+            Text(
+                text = stringResource(R.string.work_profile_paused),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+        } else if (hasWorkProfile) {
+            Text(
+                text = stringResource(R.string.work_profile_present),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+        }
         OutlinedTextField(
             value = searchValue,
             onValueChange = onSearchChange,
@@ -123,10 +140,12 @@ fun AppsSurface(
     }
 
     actionsTarget?.let { target ->
+        val shortcuts = remember(target.id) { shortcutsFor(target.id) }
         AppActionsDialog(
             target = target,
             isFavorite = target.id in favoriteIds,
             hideMode = hideModes[target.id] ?: HideMode.None,
+            shortcuts = shortcuts,
             onDismiss = { actionsTarget = null },
             onAddFavorite = {
                 onAddFavorite(target.id)
@@ -158,6 +177,10 @@ fun AppsSurface(
             },
             onAppInfo = {
                 onOpenAppInfo(target.id)
+                actionsTarget = null
+            },
+            onShortcut = { item ->
+                onLaunchShortcut(item)
                 actionsTarget = null
             },
         )
@@ -217,6 +240,7 @@ private fun AppActionsDialog(
     target: AppTarget,
     isFavorite: Boolean,
     hideMode: HideMode,
+    shortcuts: List<app.still.launcher.AppShortcutItem>,
     onDismiss: () -> Unit,
     onAddFavorite: () -> Unit,
     onRemoveFavorite: () -> Unit,
@@ -226,6 +250,7 @@ private fun AppActionsDialog(
     onHideLauncher: () -> Unit,
     onUnhide: () -> Unit,
     onAppInfo: () -> Unit,
+    onShortcut: (app.still.launcher.AppShortcutItem) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -264,6 +289,17 @@ private fun AppActionsDialog(
                 }
                 TextButton(onClick = onAppInfo) {
                     Text(stringResource(R.string.app_info))
+                }
+                if (shortcuts.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.shortcuts_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    shortcuts.forEach { item ->
+                        TextButton(onClick = { onShortcut(item) }) {
+                            Text(item.label)
+                        }
+                    }
                 }
             }
         },

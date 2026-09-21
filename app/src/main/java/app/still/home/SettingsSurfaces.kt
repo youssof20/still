@@ -45,6 +45,7 @@ fun SettingsSurface(
     onOpenConfigured: (GestureActionSlot) -> Unit,
     onOpenHiddenApps: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onOpenWidgets: () -> Unit = {},
     onSetLayoutLocked: (Boolean) -> Unit,
     onSetShowClock: (Boolean) -> Unit,
     onSetShowDate: (Boolean) -> Unit,
@@ -75,6 +76,16 @@ fun SettingsSurface(
         OutlinedButton(onClick = onOpenAppearance) {
             Text(stringResource(R.string.open_appearance))
         }
+
+        OutlinedButton(onClick = onOpenWidgets) {
+            Text(stringResource(R.string.open_widgets))
+        }
+
+        Text(stringResource(R.string.private_space_title), style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(R.string.private_space_unsupported),
+            style = MaterialTheme.typography.bodySmall,
+        )
 
         Text(stringResource(R.string.hidden_apps), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.hidden_apps_explainer), style = MaterialTheme.typography.bodySmall)
